@@ -319,4 +319,4 @@ SolomonVoice processes all audio completely offline:
 
 ## License
 
-This is a sub-project of ai-SecondBrain. See main repo for details.
+MIT License
