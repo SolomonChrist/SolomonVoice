@@ -1,0 +1,26 @@
+{
+  "shortcut": {
+    "key": "space",
+    "modifiers": ["ctrl"]
+  },
+  "whisper": {
+    "model": "base",
+    "language": null,
+    "task": "transcribe"
+  },
+  "audio": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "device": null
+  },
+  "behavior": {
+    "min_recording_seconds": 0.5,
+    "max_recording_seconds": 30,
+    "append_space": true,
+    "suppress_hotkey": true
+  },
+  "feedback": {
+    "sound_enabled": true,
+    "console_enabled": true
+  }
+}
