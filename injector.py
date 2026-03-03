@@ -3,6 +3,7 @@
 import pyperclip
 import pyautogui
 import time
+import subprocess
 
 
 class Injector:
@@ -17,7 +18,7 @@ class Injector:
         self.append_space = append_space
 
     def inject(self, text):
-        """Inject text into the focused window.
+        """Inject text into the focused window via clipboard and Ctrl+V.
 
         Args:
             text: The text to inject.
@@ -39,22 +40,27 @@ class Injector:
             raise RuntimeError(f"Failed to read clipboard: {e}")
 
         try:
-            # Copy text to clipboard
-            pyperclip.copy(text)
-            # Wait for clipboard write to complete
-            time.sleep(0.05)
+            print(f"[SolomonVoice] Injecting via clipboard: {repr(text)}", flush=True)
 
-            # Paste into focused window
-            pyautogui.hotkey("ctrl", "v")
-            # Wait for paste to complete
-            time.sleep(0.1)
+            # Copy to clipboard
+            pyperclip.copy(text)
+            time.sleep(0.2)
+
+            # Use pyautogui for more reliable Ctrl+V
+            print(f"[SolomonVoice] Sending Ctrl+V...", flush=True)
+            pyautogui.hotkey('ctrl', 'v')
+            time.sleep(0.3)
+
+            print(f"[SolomonVoice] Text injection complete", flush=True)
 
         except Exception as e:
+            print(f"[SolomonVoice] Injection error: {e}", flush=True)
             raise RuntimeError(f"Text injection failed: {e}")
         finally:
             # Always restore original clipboard
             try:
+                time.sleep(0.1)
                 pyperclip.copy(original_clipboard)
-            except Exception:
-                # If restore fails, continue anyway
-                pass
+                print(f"[SolomonVoice] Clipboard restored", flush=True)
+            except Exception as e:
+                print(f"[SolomonVoice] Warning: Could not restore clipboard: {e}", flush=True)

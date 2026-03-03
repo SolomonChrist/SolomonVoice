@@ -4,14 +4,14 @@
     "modifiers": ["ctrl"]
   },
   "whisper": {
-    "model": "base",
-    "language": null,
+    "model": "tiny",
+    "language": "en",
     "task": "transcribe"
   },
   "audio": {
     "sample_rate": 16000,
     "channels": 1,
-    "device": null
+    "device": 2
   },
   "behavior": {
     "min_recording_seconds": 0.5,

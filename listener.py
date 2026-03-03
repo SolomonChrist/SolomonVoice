@@ -83,14 +83,20 @@ class Listener:
         Returns:
             False to suppress the hotkey, None otherwise.
         """
-        # Track modifier states
-        self._update_modifiers(key, pressed=True)
+        try:
+            # Track modifier states
+            self._update_modifiers(key, pressed=True)
 
-        if self.state == State.IDLE and self._is_hotkey(key):
-            self._start_recording()
-            # Suppress the hotkey only if configured
-            if self.config.get("behavior.suppress_hotkey"):
-                return False
+            if self.state == State.IDLE and self._is_hotkey(key):
+                print(f"[SolomonVoice] Hotkey detected, starting recording...", flush=True)
+                self._start_recording()
+                # Suppress the hotkey only if configured
+                if self.config.get("behavior.suppress_hotkey"):
+                    return False
+            elif self.state != State.IDLE and self._is_hotkey(key):
+                print(f"[SolomonVoice] Hotkey pressed but not in IDLE state: {self.state.value}", flush=True)
+        except Exception as e:
+            print(f"[SolomonVoice] Error in key press handler: {e}", flush=True)
 
     def _on_key_release(self, key):
         """Handle key release event.
@@ -98,11 +104,31 @@ class Listener:
         Args:
             key: The key released.
         """
-        # Track modifier states
-        self._update_modifiers(key, pressed=False)
+        try:
+            # Track modifier states
+            self._update_modifiers(key, pressed=False)
 
-        if self.state == State.RECORDING and self._is_hotkey(key):
-            self._stop_recording()
+            # Debug: log all key releases when recording
+            if self.state == State.RECORDING:
+                try:
+                    key_name = getattr(key, 'name', str(key))
+                except:
+                    key_name = str(key)
+                print(f"[SolomonVoice] Key released during recording: {key_name}", flush=True)
+
+            if self.state == State.RECORDING and self._is_hotkey(key):
+                print(f"[SolomonVoice] Hotkey released, stopping recording...", flush=True)
+                self._stop_recording()
+            elif self.state == State.RECORDING:
+                # Check if this is the main key being released (even if modifier state changed)
+                try:
+                    if key == self.hotkey_key:
+                        print(f"[SolomonVoice] Main hotkey key released (via direct comparison), stopping recording...", flush=True)
+                        self._stop_recording()
+                except:
+                    pass
+        except Exception as e:
+            print(f"[SolomonVoice] Error in key release handler: {e}", flush=True)
 
     def _update_modifiers(self, key, pressed):
         """Update modifier key states.
@@ -130,14 +156,19 @@ class Listener:
         Returns:
             True if this is the hotkey.
         """
-        # Check if modifiers are active
-        if not self._check_modifiers():
-            return False
-
-        # Check the main key
+        # Check the main key first
         try:
-            return key == self.hotkey_key
-        except AttributeError:
+            if key == self.hotkey_key:
+                # For release events, be more lenient with modifier checking
+                # since modifier states might change during release
+                if self.state == State.RECORDING:
+                    # During recording, just check if it's the main key
+                    return True
+                else:
+                    # For press events, check modifiers are active
+                    return self._check_modifiers()
+            return False
+        except (AttributeError, TypeError):
             return False
 
     def _check_modifiers(self):
@@ -164,7 +195,7 @@ class Listener:
         Returns:
             pynput key object.
         """
-        # Map common key names
+        # Build key map dynamically to handle platform differences
         key_map = {
             "space": keyboard.Key.space,
             "f1": keyboard.Key.f1,
@@ -179,7 +210,6 @@ class Listener:
             "f10": keyboard.Key.f10,
             "f11": keyboard.Key.f11,
             "f12": keyboard.Key.f12,
-            "grave": keyboard.Key.grave,
             "escape": keyboard.Key.esc,
             "insert": keyboard.Key.insert,
             "delete": keyboard.Key.delete,
@@ -188,6 +218,12 @@ class Listener:
             "page_up": keyboard.Key.page_up,
             "page_down": keyboard.Key.page_down,
         }
+
+        # Add grave key if it exists (not all systems support it)
+        try:
+            key_map["grave"] = keyboard.Key.grave
+        except AttributeError:
+            pass
 
         if key_name in key_map:
             return key_map[key_name]
@@ -203,12 +239,15 @@ class Listener:
 
     def _start_recording(self):
         """Start recording audio."""
+        print(f"[SolomonVoice] _start_recording called, current state: {self.state.value}", flush=True)
         self.state = State.RECORDING
         self.audio_chunks = []
         self.start_time = time.time()
+        self.record_start_time = time.time()
 
         # Create audio stream
         try:
+            print(f"[SolomonVoice] Creating audio input stream...", flush=True)
             self.stream = sd.InputStream(
                 channels=self.config.get("audio.channels"),
                 samplerate=self.config.get("audio.sample_rate"),
@@ -216,17 +255,67 @@ class Listener:
                 callback=self._audio_callback,
             )
             self.stream.start()
+            print(f"[SolomonVoice] Audio stream started successfully", flush=True)
         except Exception as e:
+            print(f"[SolomonVoice] Failed to start audio stream: {e}", flush=True)
             self.feedback.error(f"Failed to start audio stream: {e}")
             self.state = State.IDLE
             return
 
-        # Set max recording timeout
+        # Set max recording timeout - also acts as fallback if key release isn't detected
         max_sec = self.config.get("behavior.max_recording_seconds")
 
         def timeout_handler():
-            time.sleep(max_sec)
+            """Auto-stop recording when key is released or after timeout."""
+            # For modifier hotkeys, detect when modifiers are released
+            # For single-key hotkeys, use a short timeout (5 seconds)
+            has_modifiers = len(self.hotkey_modifiers) > 0
+
+            if has_modifiers:
+                # Poll for modifier release - if modifiers released, stop
+                initial_modifiers = {
+                    "ctrl": self.ctrl_pressed,
+                    "alt": self.alt_pressed,
+                    "shift": self.shift_pressed,
+                }
+
+                for i in range(int(max_sec * 10)):  # Check 10x per second
+                    time.sleep(0.1)
+
+                    if self.state != State.RECORDING:
+                        return
+
+                    # Check if any required modifier was released
+                    modifiers_released = False
+                    for mod in self.hotkey_modifiers:
+                        if mod == "ctrl" and initial_modifiers.get("ctrl") and not self.ctrl_pressed:
+                            modifiers_released = True
+                        elif mod == "alt" and initial_modifiers.get("alt") and not self.alt_pressed:
+                            modifiers_released = True
+                        elif mod == "shift" and initial_modifiers.get("shift") and not self.shift_pressed:
+                            modifiers_released = True
+
+                    if modifiers_released:
+                        print(f"[SolomonVoice] Modifier released, stopping recording...", flush=True)
+                        self._stop_recording()
+                        return
+            else:
+                # Single-key hotkey (like F9): use short timeout (5 seconds)
+                short_timeout = 5
+                for i in range(short_timeout * 10):
+                    time.sleep(0.1)
+                    if self.state != State.RECORDING:
+                        return
+
+                # Timeout reached
+                if self.state == State.RECORDING:
+                    print(f"[SolomonVoice] Recording timeout ({short_timeout}s), auto-stopping...", flush=True)
+                    self._stop_recording()
+                    return
+
+            # Final timeout as absolute limit
             if self.state == State.RECORDING:
+                print(f"[SolomonVoice] Max recording time reached, auto-stopping...", flush=True)
                 self._stop_recording()
 
         timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
@@ -268,6 +357,7 @@ class Listener:
 
     def _finish_recording(self):
         """Process recorded audio: transcribe and inject text."""
+        print(f"[SolomonVoice] _finish_recording started, state: {self.state.value}", flush=True)
         try:
             # Check minimum recording duration
             duration = time.time() - self.start_time
@@ -313,8 +403,10 @@ class Listener:
                     pass
 
         except Exception as e:
+            print(f"[SolomonVoice] Exception in _finish_recording: {e}", flush=True)
             self.feedback.error(str(e))
         finally:
+            print(f"[SolomonVoice] _finish_recording complete, resetting state to IDLE", flush=True)
             self.state = State.IDLE
 
     def hotkey_display(self):

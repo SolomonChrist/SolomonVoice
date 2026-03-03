@@ -2,6 +2,7 @@
 
 import whisper
 import re
+import time
 
 
 class Transcriber:
@@ -30,6 +31,9 @@ class Transcriber:
             Exception: On Whisper errors (re-raised to caller).
         """
         try:
+            start_time = time.time()
+            print(f"[SolomonVoice] Starting transcription with {self.model_name} model...", flush=True)
+
             result = self.model.transcribe(
                 audio_path,
                 language=language,
@@ -39,6 +43,9 @@ class Transcriber:
 
             # Remove common silence/noise markers
             text = re.sub(r"\[.*?\]", "", text).strip()
+
+            elapsed = time.time() - start_time
+            print(f"[SolomonVoice] Transcription complete in {elapsed:.1f}s: {repr(text)}", flush=True)
 
             return text
         except Exception as e:

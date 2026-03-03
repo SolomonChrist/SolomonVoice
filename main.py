@@ -2,11 +2,12 @@
 
 import sys
 import signal
+import time
 from pathlib import Path
 
 from config import Config
 from feedback import Feedback
-from listener import Listener
+from listener_v2 import ListenerV2
 
 
 def main():
@@ -29,9 +30,9 @@ def main():
         console_enabled=config.get("feedback.console_enabled"),
     )
 
-    # Initialize listener
+    # Initialize listener (using improved V2 version)
     try:
-        listener = Listener(config, feedback)
+        listener = ListenerV2(config, feedback)
     except Exception as e:
         feedback.error(f"Failed to initialize: {e}")
         sys.exit(1)
@@ -56,9 +57,10 @@ def main():
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Keep running
+    # Keep running (signal.pause() doesn't work on Windows, so we use a loop)
     try:
-        signal.pause()  # Block until signal
+        while True:
+            time.sleep(0.1)  # Sleep to avoid busy-waiting
     except KeyboardInterrupt:
         listener.stop()
         if config.get("feedback.console_enabled"):
