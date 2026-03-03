@@ -2,6 +2,8 @@
 
 A lightweight, completely offline push-to-talk voice transcription tool for Windows. Hold a hotkey → record voice → release → text is automatically transcribed and typed into any focused app. No internet required, no data sent anywhere.
 
+DISCLAIMER: This is all experimental technology! Use at your own risk! Community supported as much as possible :)
+
 ## Motivation
 
 Inspired by the desire for a **completely offline alternative** to cloud-based voice tools—SolomonVoice runs entirely on your machine using OpenAI's Whisper model. Every transcription happens locally on your CPU. Your voice data stays on your device.
