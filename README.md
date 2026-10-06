@@ -6,6 +6,14 @@ Version 2.1 replaces the old global keyboard hook and clipboard paste path with 
 
 > Experimental software. Review dictated text before sending or publishing it.
 
+## Independent product identity
+
+SolomonVoice is an independent product, not a clone or reskin of another dictation application. Its brand, microphone mark, waveform overlay, settings layout, colors, interaction model, and desktop behavior are designed specifically for SolomonVoice and rendered directly by this repository. The project does not incorporate proprietary code, screenshots, icons, copied layouts, or branded assets from competing products.
+
+Product decisions should follow SolomonVoice's own priorities: offline privacy, explicit keyboard ownership, fast local dictation, visible system state, and clean Windows-native operation. New UI work should solve those requirements directly instead of recreating another product's screens or feature arrangement.
+
+SolomonVoice does use clearly declared open-source runtime libraries, including OpenAI Whisper for local speech recognition. Those dependencies provide underlying technical capabilities; they do not supply SolomonVoice's product identity or UI/UX. See `requirements.txt` and the upstream projects for their respective licenses.
+
 ## What changed in v2
 
 - **Keyboard safety:** `RegisterHotKey` owns only the configured chord. Pause and Exit call `UnregisterHotKey`; no process-wide release hook remains.
