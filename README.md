@@ -1,110 +1,81 @@
-# SolomonVoice - Offline Voice to Text
+# SolomonVoice
 
-A lightweight, completely offline push-to-talk voice transcription tool for Windows. Hold a hotkey → record voice → release → text is automatically transcribed and typed into any focused app. No internet required, no data sent anywhere.
+SolomonVoice is private push-to-talk dictation for Windows. Hold a global shortcut, speak, release it, and local OpenAI Whisper types the result at the active caret.
 
-DISCLAIMER: This is all experimental technology! Use at your own risk! Community supported as much as possible :)
+Version 2 replaces the old global keyboard hook and clipboard paste path with Windows-owned hotkey registration and direct Unicode input. It also adds a stateful tray icon, a non-activating voice meter, Pause/Resume, and a real Exit command that releases the hotkey and microphone.
 
-## Motivation
+> Experimental software. Review dictated text before sending or publishing it.
 
-Inspired by the desire for a **completely offline alternative** to cloud-based voice tools—SolomonVoice runs entirely on your machine using OpenAI's Whisper model. Every transcription happens locally on your CPU. Your voice data stays on your device.
+## What changed in v2
 
-## Features
+- **Keyboard safety:** `RegisterHotKey` owns only the configured chord. Pause and Exit call `UnregisterHotKey`; no process-wide release hook remains.
+- **Reliable shutdown:** active recordings are closed and in-flight transcription results are invalidated, so text cannot arrive after Pause or Exit.
+- **Visual feedback:** a small waveform pill appears above the taskbar while recording and while Whisper is working. It is a no-activate tool window and does not take the caret.
+- **Tray controls:** teal means ready, red means recording, amber means transcribing, gray means paused, and the warning badge means an error needs attention.
+- **Safer insertion:** Unicode is sent directly with the Windows input API. SolomonVoice no longer overwrites or restores the clipboard and never synthesizes a Ctrl+V chord.
+- **Focus protection:** if the active window changes while Whisper is transcribing, text is not inserted into the new window.
+- **Privacy cleanup:** recorded audio stays in memory instead of being written to a temporary WAV file; transcript contents are not printed to the console.
+- **Silence gate:** very low-level captures are rejected before Whisper to reduce silence hallucinations.
+- **Single instance:** a Windows mutex prevents duplicate hotkeys, microphones, and duplicate text insertion.
 
-- **100% Offline**: Uses OpenAI Whisper running locally on your CPU (no API calls, no internet)
-- **Privacy First**: All voice data stays on your device
-- **Hotkey-triggered**: Configurable hotkey (default: Ctrl+Space)
-- **Cross-app**: Text injection works in any focused window (Notepad, VS Code, Gmail, browsers, etc.)
-- **Instant Feedback**: Audio beeps + console messages
-- **Configurable**: Customize hotkey, model size, language, and behavior
-- **Fast**: Whisper model cached locally after first run
+## Requirements
 
-## Prerequisites
+- Windows 10 or 11
+- Python 3.11 or newer
+- A working microphone
+- Internet access during setup only if the configured Whisper model is not already cached
 
-Before installation, you need to set up the environment:
+FFmpeg is not needed for live dictation in v2 because microphone audio is passed directly to Whisper as an in-memory NumPy array.
 
-### 1. Install FFmpeg (Required by Whisper)
+## Install
 
-```bash
-winget install ffmpeg
+Create a project virtual environment, then install CPU-only PyTorch first to avoid downloading CUDA packages on computers that do not use an NVIDIA GPU:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
+python install_model.py
 ```
 
-Restart your terminal and verify:
-```bash
-ffmpeg -version
-```
+`install_model.py` is the explicit, one-time network step. Normal SolomonVoice startup loads only that local cache path and fails closed if the model is absent, so background dictation never initiates a download.
 
-### 2. Install PyTorch CPU-Only
+For the first launch, use the activated environment and a console so device or setup errors remain visible:
 
-**Important**: Do NOT install via `pip install -r requirements.txt` until you do this step.
-
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-```
-
-This uses the official CPU-only wheel and avoids downloading the large GPU CUDA toolkit.
-
-### 3. Install SolomonVoice Dependencies
-
-```bash
-cd SolomonVoice
-pip install -r requirements.txt
-```
-
-## First Run
-
-On your first run, Whisper will download its base model (~145MB) and cache it locally:
-
-```bash
+```powershell
 python main.py
 ```
 
-You should see:
-```
-==================================================
-SolomonVoice - Offline Voice to Text
-==================================================
-Hotkey: Ctrl+Space
-Config: C:\path\to\solomonvoice_config.json
-Ready. Hold hotkey to record.
-Press Ctrl+C to exit.
-==================================================
+Transcription is local; no recording or transcript is sent to an API. After setup, SolomonVoice can run without a network connection.
+
+For later launches, double-click `start-solomonvoice.bat` or run:
+
+```powershell
+.\run-solomonvoice.ps1
 ```
 
-The Whisper model is cached at `~/.cache/whisper/` so subsequent runs start instantly.
+Both background launchers use `pyw`, so SolomonVoice lives in the notification area without a console window.
 
-## Usage
+## Use
 
-### Basic Usage
+1. Put the caret in any normal text field.
+2. Hold **Ctrl+Space**.
+3. Speak while the red waveform is visible.
+4. Release **Space**. The overlay turns amber while transcription runs locally.
+5. Keep the same target window active until the text appears.
 
-1. Run SolomonVoice:
-   ```bash
-   python main.py
-   ```
+Right-click the tray microphone for:
 
-2. Open any text-accepting window (Notepad, browser, IDE, email, messaging app, etc.)
+- **Pause listening** — immediately unregisters Ctrl+Space and closes the microphone. The shortcut behaves normally in every app.
+- **Resume listening** — registers the shortcut again.
+- **Exit SolomonVoice** — invalidates pending work, closes the mic, unregisters the hotkey, removes the tray icon, and terminates the process.
 
-3. Hold **Ctrl+Space** (or your configured hotkey):
-   - You'll hear a beep and see "Recording... (release key to stop)"
-   - Speak clearly
-
-4. Release the key:
-   - You'll hear a stop beep and see "Transcribing..."
-   - Wait 1-2 seconds for transcription (depends on audio length and CPU)
-   - You'll hear a done beep and see the transcribed text
-
-5. The text is pasted into the focused window, and your clipboard is restored
-
-### Run in Background (No Console Window)
-
-```bash
-pythonw main.py
-```
-
-This uses the Python windowless interpreter. Audio beeps still work.
+Double-clicking the tray icon toggles Pause/Resume.
 
 ## Configuration
 
-Edit `solomonvoice_config.json` to customize behavior:
+Edit `solomonvoice_config.json` before launching:
 
 ```json
 {
@@ -113,20 +84,26 @@ Edit `solomonvoice_config.json` to customize behavior:
     "modifiers": ["ctrl"]
   },
   "whisper": {
-    "model": "base",
-    "language": null,
+    "model": "tiny",
+    "language": "en",
     "task": "transcribe"
   },
   "audio": {
     "sample_rate": 16000,
     "channels": 1,
-    "device": null
+    "device": null,
+    "silence_rms": 0.003
   },
   "behavior": {
     "min_recording_seconds": 0.5,
     "max_recording_seconds": 30,
     "append_space": true,
-    "suppress_hotkey": true
+    "require_same_window": true
+  },
+  "visual": {
+    "enabled": true,
+    "position": "bottom",
+    "reduced_motion": false
   },
   "feedback": {
     "sound_enabled": true,
@@ -135,190 +112,77 @@ Edit `solomonvoice_config.json` to customize behavior:
 }
 ```
 
-### Configuration Options
+Useful shortcut keys include `space`, letters or digits, `f1`–`f24`, `tab`, `escape`, `insert`, `delete`, `home`, `end`, and arrow keys. Modifiers may include `ctrl`, `alt`, `shift`, and `win`. Windows reserves some combinations, and SolomonVoice shows an error if another application already owns the selected chord.
 
-#### Shortcut
-- `key`: Any key name (`"space"`, `"f9"`, `"grave"`, etc.)
-- `modifiers`: Array of `"ctrl"`, `"alt"`, `"shift"` (or empty `[]` for no modifier)
+Set `audio.device` to `null` for the current Windows default microphone. Numeric device indexes are supported but can change when USB or Bluetooth devices reconnect. Run `py list_microphones.py` to inspect current indexes.
 
-#### Whisper
-- `model`: Model size (`"tiny"`, `"base"`, `"small"`, `"medium"`, `"large"`)
-  - `tiny`: ~39MB, fast, lower accuracy
-  - `base`: ~145MB, ~1.5-2s transcription, good accuracy (recommended)
-  - `small`: ~466MB, ~3-4s transcription, higher accuracy
-  - `medium`: ~1.5GB, slower, very high accuracy
-  - `large`: ~2.9GB, slowest, highest accuracy
-- `language`: ISO language code (e.g., `"en"`, `"es"`, `"fr"`) or `null` for auto-detect
-- `task`: Always `"transcribe"` (future: `"translate"`)
+### Choosing a model
 
-#### Audio
-- `sample_rate`: 16000 is standard for speech recognition
-- `channels`: 1 (mono) is standard
-- `device`: `null` for system default mic, or integer index for specific device
+The shipped configuration remains on `tiny`, the smallest standard Whisper model, because the previous installation used it. There is no smaller official Whisper model with a guarantee of the same transcription quality.
 
-#### Behavior
-- `min_recording_seconds`: Ignore recordings shorter than this (avoids accidental triggers)
-- `max_recording_seconds`: Force stop recording after this (safety limit)
-- `append_space`: Add a trailing space to transcribed text (useful for typing)
-- `suppress_hotkey`: Don't send the hotkey to other apps
+For English dictation, try these deliberately and compare them on your own speech:
 
-#### Feedback
-- `sound_enabled`: Play beeps (800Hz start, 600Hz stop, 1000Hz done, 400Hz error)
-- `console_enabled`: Print status messages
+| Model | Relative speed | Expected accuracy | Approximate download |
+|---|---:|---:|---:|
+| `tiny` / `tiny.en` | Fastest | Basic | 75 MB |
+| `base` / `base.en` | Fast | Better | 145 MB |
+| `small` / `small.en` | Moderate | Higher | 460 MB |
 
-## Hotkey Examples
+English-only `.en` models can improve English recognition without increasing model size. Change one variable at a time and compare several representative recordings before adopting a new default. Quantized engines such as faster-whisper may improve latency and memory at similar accuracy, but v2 does not silently change the inference engine without a user-specific word-error-rate benchmark.
 
-### F9 with no modifier
-```json
-{
-  "shortcut": {
-    "key": "f9",
-    "modifiers": []
-  }
-}
+## Safety behavior
+
+- Pause and Exit return Ctrl+Space to Windows immediately.
+- Repeated keydown events do not start duplicate recordings.
+- Text insertion waits for every shortcut key, including Ctrl, to be physically released.
+- Changing focus during transcription causes a safe error instead of a paste into the wrong app.
+- Closing during transcription discards that result.
+- Audible start feedback finishes before the microphone opens; stop feedback plays after it closes.
+- Elevated applications may reject input from a non-elevated SolomonVoice process due to Windows integrity protections.
+
+## Tests
+
+Run the unit and lifecycle tests with:
+
+```powershell
+py -m pytest -q --basetemp=.pytest-tmp
 ```
 
-### Ctrl+Alt+V
-```json
-{
-  "shortcut": {
-    "key": "v",
-    "modifiers": ["ctrl", "alt"]
-  }
-}
-```
-
-### Grave (backtick) with Shift
-```json
-{
-  "shortcut": {
-    "key": "grave",
-    "modifiers": ["shift"]
-  }
-}
-```
-
-## Verification
-
-Test that everything works:
-
-1. Open Notepad
-2. Click in the text area
-3. Hold Ctrl+Space, say "Hello world this is a test", release
-4. You should see and hear feedback
-5. "Hello world this is a test " should appear in Notepad
-6. Paste elsewhere — your clipboard should be restored (not the transcribed text)
-7. Try a very short press (<0.5s) — should be ignored silently
-8. Try recording only silence — should show "Could not understand audio"
-
-## Troubleshooting
-
-### "ffmpeg: command not found"
-Make sure you installed ffmpeg and restarted your terminal:
-```bash
-winget install ffmpeg
-```
-
-### "torch not found" or import errors
-Install PyTorch with the CPU index URL (see Prerequisites above).
-
-### Model download is stuck
-Whisper downloads are sometimes slow. The model is cached at `~/.cache/whisper/`. If stuck, delete that directory and try again.
-
-### Audio quality is poor
-- Try moving your microphone closer
-- Check system mic settings (Settings → Privacy & Security → Microphone)
-- Try a different model size or language setting
-
-### Text not appearing in target app
-Some apps block text injection via clipboard + Ctrl+V. Try:
-- Disabling any security software temporarily
-- Testing with Notepad first
-- Using `"suppress_hotkey": false` in case the hotkey is being intercepted
-
-### High CPU usage during transcription
-This is normal — Whisper is CPU-intensive. A smaller model (e.g., `"tiny"`) is faster but less accurate. Larger models are slower but more accurate. Transcription time depends on audio length and CPU cores.
+The test suite covers configuration isolation, hotkey parsing, UTF-16 input, in-memory transcription options, Pause teardown, and late-insertion cancellation. A Windows smoke test also registers and unregisters the native hotkey repeatedly without installing a global keyboard hook.
 
 ## Architecture
 
-- **main.py**: Entry point, startup banner, Ctrl+C handler
-- **config.py**: Configuration loader with deep-merge defaults and validation
-- **listener.py**: State machine for keyboard hook and recording orchestration
-- **transcriber.py**: Offline Whisper model wrapper
-- **injector.py**: Text injection via clipboard trick
-- **feedback.py**: Console and audio feedback
-- **solomonvoice_config.json**: User-editable configuration
+- `main.py` — application lifecycle, signals, and single-instance ownership
+- `hotkey.py` — Win32 `RegisterHotKey`, release detection, and exact teardown
+- `listener_v2.py` — locked recording/transcription state machine and cancellation generations
+- `ui.py` — tray icon and no-activate waveform overlay
+- `transcriber.py` — lazy local Whisper model and in-memory transcription
+- `injector.py` — focus-checked Unicode `SendInput`
+- `feedback.py` — optional sound and minimal console status
+- `config.py` — defaults, deep merge, and validation
 
-## Data Flow
+## Troubleshooting
 
-```
-KEY DOWN (e.g., Ctrl+Space):
-  state: IDLE → RECORDING
-  Audio stream starts (callback appends chunks)
-  Beep + "Recording..."
+**The tray says the hotkey could not be registered**
 
-[USER HOLDS KEY, SPEAKS]
+Another application owns the shortcut. Exit that application or choose a different combination in the configuration file.
 
-KEY UP:
-  state: RECORDING → TRANSCRIBING
-  Audio stream stops
-  Beep + "Transcribing..."
-  Background thread spawned
+**The microphone fails to open**
 
-[BACKGROUND THREAD - COMPLETELY LOCAL]:
-  Concatenate audio chunks
-  Write to temp .wav
-  Whisper transcribes locally (1-2 seconds)
-  Copy text to clipboard
-  Ctrl+V into focused window
-  Restore original clipboard
-  Beep + "Done: ..."
-  state: TRANSCRIBING → IDLE
-```
+Set `audio.device` to `null`, confirm Windows microphone privacy permission, and test the device with `py list_microphones.py`.
 
-## Edge Cases Handled
+**Text is not inserted**
 
-- **Too short** (<0.5s): Silently ignored
-- **Too long** (>30s): Auto-stopped, timer fires
-- **Empty transcription** (silence/noise): Shows "Could not understand audio"
-- **Whisper exception**: Caught, tool keeps running
-- **Clipboard race**: 50ms sleep between copy and paste
-- **Clipboard restore**: Always restored in finally block
-- **Key suppression**: Only hotkey suppressed, not global
+Keep the original target window active until transcription finishes. Normal applications accept Unicode input; an elevated target requires SolomonVoice to run at the same integrity level.
 
-## Performance Notes
+**Accuracy is too low**
 
-- First run: ~30-60s (downloads and caches model)
-- Subsequent runs: ~1-2s startup
-- Recording: Real-time (limited by your microphone)
-- Transcription: Depends on model and audio length
-  - Tiny: ~0.5s for 5s audio
-  - Base: ~1.5-2s for 5s audio
-  - Large: ~5-10s for 5s audio
-- Text injection: ~100ms
-- **Important**: Whisper needs `fp16=False` on CPU (we already set this)
+For English, try `tiny.en`, then `base.en`. Keep `language` set to `en`, speak close to the microphone, and compare results on the same sample phrases.
 
-## Privacy & Data
+**The model is missing while offline**
 
-SolomonVoice processes all audio completely offline:
-- ✅ No internet connection required
-- ✅ No data sent to any server
-- ✅ No cloud storage or APIs
-- ✅ Voice stays on your machine
-- ✅ Temp files deleted after transcription
-
-## Future Enhancements
-
-- Microphone device selector UI
-- Audio visualization while recording
-- Multiple hotkey profiles
-- Whisper fine-tuning for custom vocabulary
-- Real-time transcription (streaming)
-- Translation support
-- Custom TTS feedback
-- Wake word detection
-- Context-aware suggestions
+Connect once and run `python install_model.py` from the activated environment, or copy a trusted model into the normal Whisper cache before starting offline.
 
 ## License
 
-MIT License
+MIT — see `LICENSE`.

@@ -1,0 +1,19 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: py -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+      - run: py -m pip install -r requirements.txt pytest
+      - run: py -c "import main, whisper"
+      - run: py install_model.py --help
+      - run: py -m pytest -q --basetemp=.pytest-tmp

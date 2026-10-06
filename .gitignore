@@ -38,3 +38,6 @@ Thumbs.db
 # Temporary audio files
 *.wav
 *.tmp
+.pytest_cache/
+.pytest-tmp/
+.pytest-*/

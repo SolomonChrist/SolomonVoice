@@ -11,13 +11,19 @@
   "audio": {
     "sample_rate": 16000,
     "channels": 1,
-    "device": 2
+    "device": null,
+    "silence_rms": 0.003
   },
   "behavior": {
     "min_recording_seconds": 0.5,
     "max_recording_seconds": 30,
     "append_space": true,
-    "suppress_hotkey": true
+    "require_same_window": true
+  },
+  "visual": {
+    "enabled": true,
+    "position": "bottom",
+    "reduced_motion": false
   },
   "feedback": {
     "sound_enabled": true,

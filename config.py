@@ -1,7 +1,7 @@
 """Configuration loader with deep-merge defaults and validation."""
 
 import json
-import os
+import copy
 from pathlib import Path
 
 
@@ -19,12 +19,18 @@ DEFAULT_CONFIG = {
         "sample_rate": 16000,
         "channels": 1,
         "device": None,
+        "silence_rms": 0.003,
     },
     "behavior": {
         "min_recording_seconds": 0.5,
         "max_recording_seconds": 30,
         "append_space": True,
-        "suppress_hotkey": True,
+        "require_same_window": True,
+    },
+    "visual": {
+        "enabled": True,
+        "position": "bottom",
+        "reduced_motion": False,
     },
     "feedback": {
         "sound_enabled": True,
@@ -71,7 +77,7 @@ class Config:
             user_config = json.load(f)
 
         # Deep-merge user config with defaults
-        merged = self._deep_merge(DEFAULT_CONFIG.copy(), user_config)
+        merged = self._deep_merge(copy.deepcopy(DEFAULT_CONFIG), user_config)
         self._validate(merged)
         return merged
 
@@ -106,7 +112,10 @@ class Config:
             raise ValueError("shortcut.key cannot be empty")
 
         # Validate whisper model
-        valid_models = ["tiny", "base", "small", "medium", "large"]
+        valid_models = [
+            "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+            "medium", "medium.en", "large", "large-v2", "large-v3", "turbo",
+        ]
         if config["whisper"]["model"] not in valid_models:
             raise ValueError(
                 f"Invalid model: {config['whisper']['model']}. "
@@ -116,6 +125,18 @@ class Config:
         # Validate audio sample rate
         if config["audio"]["sample_rate"] <= 0:
             raise ValueError("audio.sample_rate must be positive")
+        if config["audio"]["channels"] != 1:
+            raise ValueError("audio.channels must be 1 (mono)")
+        if config["audio"]["silence_rms"] < 0:
+            raise ValueError("audio.silence_rms cannot be negative")
+
+        valid_modifiers = {"ctrl", "control", "alt", "shift", "win", "windows"}
+        invalid_modifiers = set(config["shortcut"]["modifiers"]) - valid_modifiers
+        if invalid_modifiers:
+            raise ValueError(f"Unsupported shortcut modifiers: {sorted(invalid_modifiers)}")
+
+        if config["whisper"]["task"] not in {"transcribe", "translate"}:
+            raise ValueError("whisper.task must be 'transcribe' or 'translate'")
 
         # Validate behavior limits
         min_sec = config["behavior"]["min_recording_seconds"]

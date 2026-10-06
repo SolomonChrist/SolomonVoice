@@ -34,8 +34,7 @@ class Feedback:
             text: The transcribed text.
         """
         self._beep(1000, 150)
-        preview = text[:50] + "..." if len(text) > 50 else text
-        self._print(f'Done: "{preview}"')
+        self._print("Done — text inserted")
 
     def error(self, message):
         """Signal an error.
@@ -83,5 +82,5 @@ class Feedback:
             print(f"Hotkey: {hotkey_display}", flush=True)
             print(f"Config: {config_path}", flush=True)
             print("Ready. Hold hotkey to record.", flush=True)
-            print("Press Ctrl+C to exit.", flush=True)
+            print("Use the tray menu to pause or exit.", flush=True)
             print("=" * 50, flush=True)
