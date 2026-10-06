@@ -64,6 +64,7 @@ class SettingsWindow:
         self._test_level = 0.0
         self._capture_binding = None
         self._model_installing = False
+        self._meter_after_id = None
         self.status_var = tk.StringVar(master=parent, value="Changes are saved only on this Windows account.")
 
         if listener.state != State.PAUSED:
@@ -75,7 +76,7 @@ class SettingsWindow:
         self.window.minsize(740, 800)
         self.window.configure(bg=BG)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.window.after(40, self._update_meter)
+        self._meter_after_id = self.window.after(40, self._update_meter)
         self._configure_style()
         self._apply_window_branding()
         self._build()
@@ -631,7 +632,16 @@ class SettingsWindow:
         if self._test_stream is None:
             self._test_level *= 0.65
         self.meter["value"] = int(max(0.0, min(1.0, current)) * 100)
-        self.window.after(40, self._update_meter)
+        self._meter_after_id = self.window.after(40, self._update_meter)
+
+    def _cancel_meter_update(self):
+        if self._meter_after_id is None:
+            return
+        try:
+            self.window.after_cancel(self._meter_after_id)
+        except tk.TclError:
+            pass
+        self._meter_after_id = None
 
     def _stop_microphone_test(self):
         stream = self._test_stream
@@ -834,6 +844,7 @@ class SettingsWindow:
         except Exception:
             pass
         self._closed = True
+        self._cancel_meter_update()
         self._end_shortcut_capture()
         self.window.destroy()
 
@@ -841,6 +852,7 @@ class SettingsWindow:
         if self._closed:
             return
         self._closed = True
+        self._cancel_meter_update()
         self._end_shortcut_capture()
         self.window.destroy()
         if not self.was_paused:

@@ -53,33 +53,28 @@ def test_settings_actions_are_visible_inside_window():
         assert style.lookup("SV.Vertical.TScrollbar", "background", ("active",)) == "#203855"
     finally:
         settings.shutdown()
-        root.destroy()
 
+    class HistoryListener:
+        @staticmethod
+        def history_snapshot():
+            return [{
+                "id": 1,
+                "time": "01:23:45 PM",
+                "model": "base",
+                "status": "Blocked",
+                "text": "Repeated output was blocked.",
+                "detail": "Whisper produced repeated text.",
+            }]
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows history layout test")
-def test_history_actions_are_visible_and_use_dark_selection():
-    class Listener:
-        def history_snapshot(self):
-            return [
-                {
-                    "id": 1,
-                    "time": "01:23:45 PM",
-                    "model": "base",
-                    "status": "Blocked",
-                    "text": "Repeated output was blocked.",
-                    "detail": "Whisper produced repeated text.",
-                }
-            ]
-
-        def has_retry_audio(self):
+        @staticmethod
+        def has_retry_audio():
             return True
 
-        def retry_last(self, insert=False):
+        @staticmethod
+        def retry_last(insert=False):
             return not insert
 
-    root = __import__("tkinter").Tk()
-    root.withdraw()
-    history = HistoryWindow(root, Listener(), was_paused=True)
+    history = HistoryWindow(root, HistoryListener(), was_paused=True)
     try:
         history.window.update()
         assert history.tree.winfo_ismapped()

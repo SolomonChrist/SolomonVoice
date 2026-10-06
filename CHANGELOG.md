@@ -6,6 +6,7 @@
 - Capture now prefers each Windows endpoint's native sample rate before local resampling.
 - Restored Whisper's decoding fallback ladder and block pathological repeated-letter or repeated-word output before insertion.
 - Added private session history and retry controls; transcripts and the latest retry audio remain memory-only and disappear on exit.
+- Fixed Settings microphone-meter timer cleanup so closed windows leave no background UI callbacks.
 
 ## 2.2.0
 
