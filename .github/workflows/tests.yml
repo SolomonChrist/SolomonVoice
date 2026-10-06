@@ -2,7 +2,17 @@ name: tests
 
 on:
   push:
+    # A release tag points at a commit already tested on main. Running the
+    # complete Windows dependency install again creates duplicate, occasionally
+    # flaky status entries without testing different code.
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: solomonvoice-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows-tests:
