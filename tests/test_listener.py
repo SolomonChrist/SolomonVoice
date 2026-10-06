@@ -80,6 +80,7 @@ class FakeInjector:
 
 class FakeTranscriber:
     def __init__(self, *_args):
+        self.args = _args
         self.started = threading.Event()
         self.release = threading.Event()
 
@@ -296,6 +297,25 @@ def test_configure_shortcut_probes_candidate_before_replacing(monkeypatch):
 
     assert listener.hotkey is not old_hotkey
     assert listener.hotkey.active is False
+
+
+def test_configure_model_uses_existing_checkpoint_while_paused(monkeypatch, tmp_path):
+    listener = make_listener(monkeypatch)
+    listener.state = State.PAUSED
+    checkpoint = tmp_path / "custom-english.pt"
+    checkpoint.write_bytes(b"local checkpoint")
+
+    listener.configure_model("custom-english", str(tmp_path))
+
+    assert listener.transcriber.args == ("custom-english", "transcribe", str(tmp_path))
+
+
+def test_configure_model_requires_an_installed_checkpoint(monkeypatch, tmp_path):
+    listener = make_listener(monkeypatch)
+    listener.state = State.PAUSED
+
+    with pytest.raises(RuntimeError, match="not installed"):
+        listener.configure_model("small", str(tmp_path))
 
 
 def test_stale_escape_registration_is_immediately_released(monkeypatch):

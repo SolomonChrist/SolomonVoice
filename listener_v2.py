@@ -14,6 +14,7 @@ from audio_devices import capture_sample_rate, resolve_input_device
 from hotkey import NativeHotkey
 from injector import Injector
 from transcriber import Transcriber
+from whisper_models import model_path
 
 
 class State(Enum):
@@ -53,6 +54,7 @@ class ListenerV2:
         self.transcriber = Transcriber(
             config.get("whisper.model"),
             config.get("whisper.task", "transcribe"),
+            config.get("whisper.model_directory"),
         )
         self.injector = Injector(
             config.get("behavior.append_space"),
@@ -127,9 +129,27 @@ class ListenerV2:
         try:
             self.hotkey.start()
             self._set_state(State.IDLE)
+            self._spawn_worker(self._warm_model, "SolomonVoiceModelLoader")
         except Exception as exc:
             self._set_state(State.ERROR, str(exc))
             self.feedback.error(str(exc))
+
+    def configure_model(self, model_name, model_directory=None) -> None:
+        """Replace the transcriber only while listening is safely paused."""
+        with self._lock:
+            if self.state != State.PAUSED:
+                raise RuntimeError("Pause SolomonVoice before changing the speech model")
+        checkpoint = model_path(model_name, model_directory)
+        if not checkpoint.is_file():
+            raise RuntimeError(
+                f"'{model_name}' is not installed in '{checkpoint.parent}'. "
+                "Use Install selected model before applying this change."
+            )
+        self.transcriber = Transcriber(
+            model_name,
+            self.config.get("whisper.task", "transcribe"),
+            str(checkpoint.parent),
+        )
 
     def stop(self) -> None:
         """Idempotently release every OS resource owned by the listener."""

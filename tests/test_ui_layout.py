@@ -41,10 +41,15 @@ def test_settings_actions_are_visible_inside_window():
         for button in (settings.defaults_button, settings.apply_button, settings.cancel_button):
             assert button.winfo_ismapped()
             assert button.winfo_rooty() + button.winfo_height() <= settings.window.winfo_rooty() + height
+        assert settings.model_combo.winfo_ismapped()
+        assert settings.model_dir_entry.winfo_ismapped()
+        assert settings.install_model_button.winfo_ismapped()
+        assert settings.model_var.get() == "tiny"
         style = __import__("tkinter.ttk", fromlist=["Style"]).Style(settings.window)
         assert style.lookup("SV.TButton", "background", ("active",)) == "#203855"
         assert style.lookup("SV.TCombobox", "fieldbackground", ("readonly",)) == INPUT
         assert style.lookup("Accent.TButton", "foreground", ("active",)) == BG
+        assert style.lookup("SV.Vertical.TScrollbar", "background", ("active",)) == "#203855"
     finally:
         settings.shutdown()
         root.destroy()

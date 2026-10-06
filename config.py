@@ -7,6 +7,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from whisper_models import DEFAULT_MODEL, validate_model_name
+
 
 DEFAULT_CONFIG = {
     "shortcut": {
@@ -14,7 +16,8 @@ DEFAULT_CONFIG = {
         "modifiers": ["ctrl"],
     },
     "whisper": {
-        "model": "base",
+        "model": DEFAULT_MODEL,
+        "model_directory": None,
         "language": None,
         "task": "transcribe",
     },
@@ -146,16 +149,14 @@ class Config:
         if not config["shortcut"]["key"]:
             raise ValueError("shortcut.key cannot be empty")
 
-        # Validate whisper model
-        valid_models = [
-            "tiny", "tiny.en", "base", "base.en", "small", "small.en",
-            "medium", "medium.en", "large", "large-v2", "large-v3", "turbo",
-        ]
-        if config["whisper"]["model"] not in valid_models:
-            raise ValueError(
-                f"Invalid model: {config['whisper']['model']}. "
-                f"Must be one of: {', '.join(valid_models)}"
-            )
+        # Official model names and safe local Whisper-compatible .pt stems are
+        # supported. Folder traversal is rejected independently of the folder.
+        config["whisper"]["model"] = validate_model_name(config["whisper"]["model"])
+        model_directory = config["whisper"].get("model_directory")
+        if model_directory is not None and (
+            not isinstance(model_directory, str) or not model_directory.strip()
+        ):
+            raise ValueError("whisper.model_directory must be null or a non-empty folder path")
 
         # Validate audio sample rate
         if config["audio"]["sample_rate"] <= 0:

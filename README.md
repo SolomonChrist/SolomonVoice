@@ -2,7 +2,7 @@
 
 SolomonVoice is private push-to-talk dictation for Windows. Hold a global shortcut, speak, release it, and local OpenAI Whisper types the result at the active caret.
 
-Version 2.1 replaces the old global keyboard hook and clipboard paste path with Windows-owned hotkey registration and direct Unicode input. It adds a stateful tray icon, a non-activating voice meter, Pause/Resume, a native settings window, and a real Exit command that releases the hotkey and microphone.
+Version 2.2 adds visible local-model and storage management to the native Settings window. It builds on the safer Windows-owned hotkey registration, direct Unicode input, stateful tray icon, non-activating voice meter, Pause/Resume, and real Exit behavior introduced in v2.
 
 > Experimental software. Review dictated text before sending or publishing it.
 
@@ -75,7 +75,7 @@ Both background launchers use `pyw`, so SolomonVoice lives in the notification a
 
 Right-click the tray microphone for:
 
-- **Settings…** — choose a microphone, test its level, change the dictation shortcut, and adjust behavior without editing JSON.
+- **Settings…** — choose or install a local Whisper model, change its storage folder, choose a microphone, test its level, change the dictation shortcut, and adjust behavior without editing JSON.
 - **Pause listening** — immediately unregisters Ctrl+Space and closes the microphone. The shortcut behaves normally in every app.
 - **Resume listening** — registers the shortcut again.
 - **Exit SolomonVoice** — invalidates pending work, closes the mic, unregisters the hotkey, removes the tray icon, and terminates the process.
@@ -87,6 +87,7 @@ Double-clicking the tray icon toggles Pause/Resume.
 Open **Settings…** from the tray menu. SolomonVoice temporarily pauses listening while the window is open so shortcut capture and microphone testing cannot interfere with other applications.
 
 - Choose **Windows default** or a named microphone. Named devices are saved by device name and Windows audio host rather than a fragile numeric index.
+- Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.
 - Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
 - Choose hold-to-talk or press-once toggle mode. In either mode, **Escape** can discard the current recording without transcribing it.
 - Enable launch at Windows sign-in, move or hide the waveform, reduce animation, and toggle sounds.
@@ -105,6 +106,7 @@ The tray Settings window covers normal choices. `solomonvoice_config.json` remai
   },
   "whisper": {
     "model": "tiny",
+    "model_directory": null,
     "language": "en",
     "task": "transcribe"
   },
@@ -141,7 +143,7 @@ Set `audio.device` to `null` for the current Windows default microphone. The Set
 
 ### Choosing a model
 
-The shipped configuration remains on `tiny`, the smallest standard Whisper model, because the previous installation used it. There is no smaller official Whisper model with a guarantee of the same transcription quality.
+New installations select `tiny`, the smallest and fastest standard Whisper model, so first-time setup finishes quickly. Existing users keep their saved choice. Use the Speech model card in Settings to compare another installed model or change the model folder.
 
 For English dictation, try these deliberately and compare them on your own speech:
 

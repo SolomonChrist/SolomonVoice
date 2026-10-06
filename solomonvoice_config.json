@@ -5,6 +5,7 @@
   },
   "whisper": {
     "model": "tiny",
+    "model_directory": null,
     "language": "en",
     "task": "transcribe"
   },

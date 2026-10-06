@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import ctypes
+import os
+import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 import sounddevice as sd
@@ -15,6 +17,14 @@ from audio_devices import capture_sample_rate, input_microphones, selected_micro
 from hotkey import modifier_mask, virtual_key
 from listener_v2 import State
 from startup import set_start_with_windows, starts_with_windows
+from whisper_models import (
+    DEFAULT_MODEL,
+    MODEL_DESCRIPTIONS,
+    OFFICIAL_MODELS,
+    available_model_names,
+    model_path,
+    resolve_model_directory,
+)
 
 
 SUPPORTED_KEYS = (
@@ -53,6 +63,7 @@ class SettingsWindow:
         self._test_stream = None
         self._test_level = 0.0
         self._capture_binding = None
+        self._model_installing = False
         self.status_var = tk.StringVar(master=parent, value="Changes are saved only on this Windows account.")
 
         if listener.state != State.PAUSED:
@@ -124,8 +135,28 @@ class SettingsWindow:
             bordercolor=[("focus", TEAL), ("active", "#365474"), ("!focus", BORDER)],
         )
         style.configure(
+            "SV.TEntry", fieldbackground=INPUT, foreground=TEXT, insertcolor=TEXT,
+            bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=7,
+        )
+        style.map(
+            "SV.TEntry",
+            fieldbackground=[("disabled", "#0B1727"), ("focus", INPUT), ("!focus", INPUT)],
+            foreground=[("disabled", MUTED), ("!disabled", TEXT)],
+            bordercolor=[("focus", TEAL), ("!focus", BORDER)],
+        )
+        style.configure(
             "Mic.Horizontal.TProgressbar", troughcolor=INPUT, background=TEAL,
             lightcolor=TEAL, darkcolor=TEAL, bordercolor=INPUT, thickness=7,
+        )
+        style.configure(
+            "SV.Vertical.TScrollbar", troughcolor=BG, background=SURFACE_HOVER,
+            bordercolor=BG, lightcolor=SURFACE_HOVER, darkcolor=SURFACE_HOVER,
+            arrowcolor=MUTED, relief="flat", width=11,
+        )
+        style.map(
+            "SV.Vertical.TScrollbar",
+            background=[("pressed", TEAL), ("active", "#203855"), ("!active", SURFACE_HOVER)],
+            arrowcolor=[("pressed", BG), ("active", TEAL), ("!active", MUTED)],
         )
         self.window.option_add("*TCombobox*Listbox.background", SURFACE)
         self.window.option_add("*TCombobox*Listbox.foreground", TEXT)
@@ -178,14 +209,12 @@ class SettingsWindow:
             style="SV.TLabel",
         ).pack(anchor="w", pady=(0, 16))
 
-        self._build_microphone(shell)
-        self._build_shortcut(shell)
-        self._build_behavior(shell)
-
-        footer_rule = tk.Frame(shell, bg=BORDER, height=1)
-        footer_rule.pack(fill="x", pady=(8, 14))
-        ttk.Label(shell, textvariable=self.status_var, style="SV.TLabel").pack(anchor="w", pady=(0, 10))
-        buttons = ttk.Frame(shell, style="SV.TFrame")
+        footer = ttk.Frame(shell, style="SV.TFrame")
+        footer.pack(side="bottom", fill="x")
+        footer_rule = tk.Frame(footer, bg=BORDER, height=1)
+        footer_rule.pack(fill="x", pady=(9, 12))
+        ttk.Label(footer, textvariable=self.status_var, style="SV.TLabel").pack(anchor="w", pady=(0, 9))
+        buttons = ttk.Frame(footer, style="SV.TFrame")
         buttons.pack(fill="x")
         self.cancel_button = ttk.Button(buttons, text="Cancel", command=self.close, style="SV.TButton")
         self.cancel_button.pack(side="right")
@@ -194,12 +223,190 @@ class SettingsWindow:
         self.defaults_button = ttk.Button(buttons, text="Restore defaults", command=self.restore_defaults, style="SV.TButton")
         self.defaults_button.pack(side="left")
 
+        content_host = tk.Frame(shell, bg=BG)
+        content_host.pack(fill="both", expand=True)
+        self.content_canvas = tk.Canvas(content_host, bg=BG, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(
+            content_host,
+            orient="vertical",
+            command=self.content_canvas.yview,
+            style="SV.Vertical.TScrollbar",
+        )
+        self.content_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.content_canvas.pack(side="left", fill="both", expand=True)
+        content = ttk.Frame(self.content_canvas, style="SV.TFrame")
+        content_window = self.content_canvas.create_window((0, 0), window=content, anchor="nw")
+        content.bind(
+            "<Configure>",
+            lambda _event: self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all")),
+        )
+        self.content_canvas.bind(
+            "<Configure>",
+            lambda event: self.content_canvas.itemconfigure(content_window, width=event.width),
+        )
+        self.content_canvas.bind("<Enter>", lambda _event: self.content_canvas.bind_all("<MouseWheel>", self._scroll_content))
+        self.content_canvas.bind("<Leave>", lambda _event: self.content_canvas.unbind_all("<MouseWheel>"))
+
+        self._build_model(content)
+        self._build_microphone(content)
+        self._build_shortcut(content)
+        self._build_behavior(content)
+
     def _card(self, parent):
         border = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         border.pack(fill="x", pady=(0, 11))
         card = ttk.Frame(border, style="Card.TFrame", padding=(18, 14))
         card.pack(fill="both", expand=True)
         return card
+
+    def _scroll_content(self, event):
+        self.content_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def _build_model(self, parent):
+        card = self._card(parent)
+        ttk.Label(card, text="Speech model", style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            card,
+            text="Choose the local Whisper checkpoint used for transcription.",
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 9))
+
+        current_model = self.config.get("whisper.model", DEFAULT_MODEL)
+        current_directory = resolve_model_directory(self.config.get("whisper.model_directory"))
+        self.model_var = tk.StringVar(value=current_model)
+        self.model_dir_var = tk.StringVar(value=str(current_directory))
+        self.model_status = tk.StringVar()
+        self.model_combo = ttk.Combobox(
+            card,
+            textvariable=self.model_var,
+            values=available_model_names(current_directory, current_model),
+            state="readonly",
+            width=24,
+            style="SV.TCombobox",
+        )
+        self.model_combo.grid(row=2, column=0, sticky="ew")
+        self.model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_model_status())
+        self.install_model_button = ttk.Button(
+            card,
+            text="Install selected model",
+            command=self.install_selected_model,
+            style="SV.TButton",
+        )
+        self.install_model_button.grid(row=2, column=1, columnspan=2, sticky="e", padx=(10, 0))
+
+        ttk.Label(card, text="Model folder", style="Muted.TLabel").grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(10, 4)
+        )
+        self.model_dir_entry = ttk.Entry(card, textvariable=self.model_dir_var, style="SV.TEntry")
+        self.model_dir_entry.grid(row=4, column=0, columnspan=2, sticky="ew")
+        self.model_dir_entry.bind("<FocusOut>", lambda _event: self._model_directory_changed())
+        self.model_dir_entry.bind("<Return>", lambda _event: self._model_directory_changed())
+        self.browse_model_button = ttk.Button(
+            card, text="Browse…", command=self.choose_model_directory, style="SV.TButton"
+        )
+        self.browse_model_button.grid(row=4, column=2, padx=(10, 0))
+        ttk.Label(card, textvariable=self.model_status, style="Muted.TLabel").grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
+        card.columnconfigure(0, weight=1)
+        self._update_model_status()
+
+    def _selected_model_directory(self):
+        value = self.model_dir_var.get().strip()
+        if not value:
+            return resolve_model_directory(None)
+        return resolve_model_directory(value)
+
+    def _model_directory_changed(self):
+        directory = self._selected_model_directory()
+        self.model_dir_var.set(str(directory))
+        self.model_combo.configure(values=available_model_names(directory, self.model_var.get()))
+        self._update_model_status()
+
+    def choose_model_directory(self):
+        selected = filedialog.askdirectory(
+            parent=self.window,
+            title="Choose SolomonVoice model folder",
+            initialdir=str(self._selected_model_directory()),
+            mustexist=False,
+        )
+        if selected:
+            self.model_dir_var.set(os.path.abspath(selected))
+            self._model_directory_changed()
+
+    def _update_model_status(self):
+        name = self.model_var.get().strip()
+        checkpoint = model_path(name, self._selected_model_directory())
+        description = MODEL_DESCRIPTIONS.get(name, "Local Whisper-compatible checkpoint")
+        installed = checkpoint.is_file()
+        state = "Installed" if installed else "Not installed"
+        self.model_status.set(f"{description}  •  {state}  •  {checkpoint.name}")
+        if hasattr(self, "install_model_button"):
+            can_install = name in OFFICIAL_MODELS and not installed and not self._model_installing
+            if self._model_installing:
+                button_text = "Installing…"
+            elif installed:
+                button_text = "Installed"
+            elif name in OFFICIAL_MODELS:
+                button_text = "Install selected model"
+            else:
+                button_text = "Local model only"
+            self.install_model_button.configure(
+                state="normal" if can_install else "disabled",
+                text=button_text,
+            )
+
+    def install_selected_model(self):
+        if self._model_installing:
+            return
+        name = self.model_var.get().strip()
+        if name not in OFFICIAL_MODELS:
+            messagebox.showinfo(
+                "Local model",
+                "Custom checkpoints cannot be downloaded automatically. Copy the compatible .pt file into the selected model folder.",
+                parent=self.window,
+            )
+            return
+        directory = self._selected_model_directory()
+        self._model_installing = True
+        self.status_var.set(f"Installing {name}… Keep SolomonVoice open while the download completes.")
+        self.apply_button.configure(state="disabled")
+        self.model_combo.configure(state="disabled")
+        self.browse_model_button.configure(state="disabled")
+        self._update_model_status()
+
+        def worker():
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                import whisper
+
+                loaded = whisper.load_model(name, download_root=str(directory))
+                del loaded
+                error = None
+            except Exception as exc:
+                error = exc
+            try:
+                self.window.after(0, lambda: self._finish_model_install(name, directory, error))
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, name="SolomonVoiceModelInstaller", daemon=True).start()
+
+    def _finish_model_install(self, name, directory, error):
+        if self._closed:
+            return
+        self._model_installing = False
+        self.apply_button.configure(state="normal")
+        self.model_combo.configure(state="readonly")
+        self.browse_model_button.configure(state="normal")
+        self.model_combo.configure(values=available_model_names(directory, name))
+        self._update_model_status()
+        if error is not None:
+            self.status_var.set(f"Could not install {name}.")
+            messagebox.showerror("Model installation failed", str(error), parent=self.window)
+            return
+        self.status_var.set(f"{name} is installed locally. Click Apply changes to use it.")
 
     def _toggle_chip(self, parent, text, variable, width=None):
         widget = tk.Checkbutton(
@@ -498,6 +705,13 @@ class SettingsWindow:
         return "+".join([item.title() for item in modifiers] + [key.title()])
 
     def apply(self):
+        if self._model_installing:
+            messagebox.showinfo(
+                "Model installation in progress",
+                "Wait for the selected model to finish installing before applying settings.",
+                parent=self.window,
+            )
+            return
         if not self._stop_microphone_test():
             messagebox.showerror(
                 "Microphone still in use",
@@ -507,6 +721,7 @@ class SettingsWindow:
             return
         key, modifiers = self._shortcut()
         old_hotkey = self.listener.hotkey
+        old_transcriber = self.listener.transcriber
         old_startup = self.original_startup
         try:
             virtual_key(key)
@@ -516,6 +731,8 @@ class SettingsWindow:
 
             candidate = copy.deepcopy(self.original)
             candidate["shortcut"] = {"key": key, "modifiers": modifiers}
+            candidate["whisper"]["model"] = self.model_var.get().strip()
+            candidate["whisper"]["model_directory"] = str(self._selected_model_directory())
             candidate["audio"]["device"] = self._selected_identity()
             candidate["behavior"]["recording_mode"] = self.mode_var.get()
             candidate["behavior"]["escape_to_cancel"] = bool(self.escape_var.get())
@@ -529,6 +746,10 @@ class SettingsWindow:
             # shortcut before any persisted setting is changed.
             candidate = self.config.validated(candidate)
             self.listener.configure_shortcut(key, modifiers)
+            self.listener.configure_model(
+                candidate["whisper"]["model"],
+                candidate["whisper"]["model_directory"],
+            )
             set_start_with_windows(candidate["behavior"]["start_with_windows"])
             self.config.replace(candidate)
             self.config.save_user()
@@ -536,6 +757,7 @@ class SettingsWindow:
         except Exception as exc:
             self.config.replace(self.original)
             self.listener.hotkey = old_hotkey
+            self.listener.transcriber = old_transcriber
             rollback_errors = []
             try:
                 set_start_with_windows(old_startup)
@@ -572,6 +794,9 @@ class SettingsWindow:
         self.shift_var.set("shift" in configured)
         self.win_var.set(bool(configured & {"win", "windows"}))
         self.key_var.set(shortcut["key"])
+        self.model_var.set(defaults["whisper"].get("model", DEFAULT_MODEL))
+        self.model_dir_var.set(str(resolve_model_directory(defaults["whisper"].get("model_directory"))))
+        self._model_directory_changed()
         self.mic_var.set(self.default_label)
         self.mode_var.set(defaults["behavior"].get("recording_mode", "hold"))
         self.escape_var.set(defaults["behavior"].get("escape_to_cancel", True))
@@ -583,6 +808,13 @@ class SettingsWindow:
         self.status_var.set("Product defaults loaded. Click Apply changes to save them.")
 
     def close(self):
+        if self._model_installing:
+            messagebox.showinfo(
+                "Model installation in progress",
+                "Wait for the model installation to finish before closing Settings.",
+                parent=self.window,
+            )
+            return
         if not self._stop_microphone_test():
             messagebox.showerror(
                 "Microphone still in use",

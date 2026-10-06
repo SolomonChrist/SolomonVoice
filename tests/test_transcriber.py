@@ -61,3 +61,23 @@ def test_cached_model_is_loaded_by_local_path(monkeypatch, tmp_path):
 
     assert transcriber.model is loaded
     assert calls == [str(model_path)]
+
+
+def test_configured_model_directory_is_used(monkeypatch, tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    checkpoint = model_dir / "custom-english.pt"
+    checkpoint.write_bytes(b"trusted local checkpoint")
+    calls = []
+    loaded = object()
+    monkeypatch.setitem(
+        sys.modules,
+        "whisper",
+        SimpleNamespace(load_model=lambda path: calls.append(path) or loaded),
+    )
+
+    transcriber = Transcriber("custom-english", model_directory=str(model_dir))
+    transcriber.warm_up()
+
+    assert transcriber.model is loaded
+    assert calls == [str(checkpoint)]

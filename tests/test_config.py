@@ -26,6 +26,29 @@ def test_english_only_models_are_supported(tmp_path):
     assert config.get("whisper.model") == "base.en"
 
 
+def test_smallest_model_is_the_product_default(tmp_path):
+    config = Config(write_config(tmp_path, {}))
+
+    assert config.get("whisper.model") == "tiny"
+
+
+def test_safe_local_model_name_and_directory_are_supported(tmp_path):
+    config = Config(
+        write_config(
+            tmp_path,
+            {"whisper": {"model": "team-english-v1", "model_directory": str(tmp_path / "models")}},
+        )
+    )
+
+    assert config.get("whisper.model") == "team-english-v1"
+    assert config.get("whisper.model_directory") == str(tmp_path / "models")
+
+
+def test_model_path_traversal_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="safe model name"):
+        Config(write_config(tmp_path, {"whisper": {"model": "../outside"}}))
+
+
 def test_unknown_modifier_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="Unsupported shortcut modifiers"):
         Config(write_config(tmp_path, {"shortcut": {"modifiers": ["hyper"]}}))

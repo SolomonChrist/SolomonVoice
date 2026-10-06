@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0
+
+- Added a visible Whisper model selector with installed-state and size/speed guidance.
+- Added a configurable local model folder and discovery of compatible `.pt` checkpoints.
+- Added an explicit in-app model installer; background dictation remains offline.
+- Made `tiny` the consistent smallest, fastest first-install default.
+
 ## 2.1.1
 
 - Redesigned Settings with a cohesive SolomonVoice dark visual system.

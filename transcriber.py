@@ -5,18 +5,18 @@ from __future__ import annotations
 import re
 import threading
 import time
-import os
-from pathlib import Path
-
 import numpy as np
+
+from whisper_models import model_path
 
 
 class Transcriber:
     """Lazily load Whisper once and transcribe in-memory audio."""
 
-    def __init__(self, model_name="base", task="transcribe"):
+    def __init__(self, model_name="tiny", task="transcribe", model_directory=None):
         self.model_name = model_name
         self.task = task
+        self.model_directory = model_directory
         self.model = None
         self._model_lock = threading.Lock()
 
@@ -31,16 +31,15 @@ class Transcriber:
             if self.model is None:
                 import whisper
 
-                default_cache = Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache"))
-                model_path = default_cache / "whisper" / f"{self.model_name}.pt"
-                if not model_path.is_file():
+                checkpoint = model_path(self.model_name, self.model_directory)
+                if not checkpoint.is_file():
                     raise RuntimeError(
                         f"The local Whisper model '{self.model_name}' is not installed. "
-                        "Run 'py install_model.py' once during setup."
+                        f"Install it in SolomonVoice Settings or place it in '{checkpoint.parent}'."
                     )
                 # Loading by explicit path prevents Whisper from attempting a
                 # network download during background dictation.
-                self.model = whisper.load_model(str(model_path))
+                self.model = whisper.load_model(str(checkpoint))
         return self.model
 
     def transcribe(self, audio: np.ndarray, language=None) -> str:
