@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1 — 2026-10-06
+
+- Added a visible SolomonVoice brand label and microphone mark to the recording overlay.
+- Rebuilt the pill background to eliminate overlapping corner outlines.
+- Separated status text and waveform into fixed columns with automated layout checks.
+
 ## 2.0.0 — 2026-10-06
 
 - Replaced the leaking low-level keyboard hook with owned Win32 hotkey registration.

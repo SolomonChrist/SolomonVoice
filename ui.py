@@ -150,7 +150,7 @@ class DesktopUI:
         except tk.TclError:
             pass
 
-        self.width, self.height = 330, 76
+        self.width, self.height = 420, 84
         self.canvas = tk.Canvas(
             self.overlay,
             width=self.width,
@@ -159,30 +159,62 @@ class DesktopUI:
             highlightthickness=0,
         )
         self.canvas.pack()
-        self._rounded_rect(1, 1, self.width - 1, self.height - 1, 22, "#101827", "#2A3A51")
-        self.canvas.create_oval(18, 20, 54, 56, fill="#18263A", outline="")
-        self.mic = self.canvas.create_text(36, 38, text="●", fill=COLORS["ready"], font=("Segoe UI", 18, "bold"))
+        # Two filled rounded shapes create one clean border. Individual corner
+        # outlines caused the overlapping circles visible in the original UI.
+        self._rounded_rect(1, 1, self.width - 1, self.height - 1, 24, "#30415B")
+        self._rounded_rect(2, 2, self.width - 2, self.height - 2, 23, "#101827")
+
+        # SolomonVoice brand mark: a compact microphone inside a state ring.
+        self.canvas.create_oval(15, 16, 67, 68, fill="#17243A", outline="#3B506D", width=1)
+        self.logo_mic_items = [
+            self.canvas.create_oval(33, 24, 49, 40, fill=COLORS["ready"], outline=""),
+            self.canvas.create_rectangle(33, 32, 49, 43, fill=COLORS["ready"], outline=""),
+        ]
+        self.canvas.create_line(29, 38, 29, 43, 31, 48, 36, 51, 41, 51, 46, 48, 53, 43, 53, 38,
+                                fill="#EAF2FF", width=2, smooth=True)
+        self.canvas.create_line(41, 51, 41, 57, fill="#EAF2FF", width=2)
+        self.canvas.create_line(35, 57, 47, 57, fill="#EAF2FF", width=2)
+        self.state_dot = self.canvas.create_oval(56, 19, 63, 26, fill=COLORS["ready"], outline="#101827")
+
+        self.brand = self.canvas.create_text(
+            78, 17, text="SOLOMON VOICE", fill="#59E2D2", anchor="w", font=("Segoe UI Semibold", 8)
+        )
         self.title = self.canvas.create_text(
-            70, 25, text="Listening…", fill="#F8FAFC", anchor="w", font=("Segoe UI", 11, "bold")
+            78, 39, text="Listening", fill="#F8FAFC", anchor="w", font=("Segoe UI", 11, "bold")
         )
         self.subtitle = self.canvas.create_text(
-            70, 48, text="Release Ctrl+Space to transcribe", fill="#9FB0C8", anchor="w", font=("Segoe UI", 8)
+            78, 62, text="Release Ctrl+Space to transcribe", fill="#9FB0C8", anchor="w", font=("Segoe UI", 8)
         )
-        for index in range(18):
-            x = 210 + index * 5
-            self._bars.append(self.canvas.create_line(x, 30, x, 46, fill=COLORS["recording"], width=3))
+        self.divider_x = 306
+        self.canvas.create_line(self.divider_x, 17, self.divider_x, 67, fill="#2B3D56", width=1)
+        self.bar_start = 326
+        self.bar_center = 42
+        self.bar_spacing = 4.5
+        for index in range(17):
+            x = self.bar_start + index * self.bar_spacing
+            self._bars.append(
+                self.canvas.create_line(
+                    x,
+                    self.bar_center - 8,
+                    x,
+                    self.bar_center + 8,
+                    fill=COLORS["recording"],
+                    width=3,
+                    capstyle=tk.ROUND,
+                )
+            )
 
         self.overlay.update_idletasks()
         self._apply_no_activate_style()
         self._position_overlay()
 
-    def _rounded_rect(self, x1, y1, x2, y2, radius, fill, outline):
+    def _rounded_rect(self, x1, y1, x2, y2, radius, fill):
         self.canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline="")
         self.canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline="")
-        self.canvas.create_oval(x1, y1, x1 + radius * 2, y1 + radius * 2, fill=fill, outline=outline, width=1)
-        self.canvas.create_oval(x2 - radius * 2, y1, x2, y1 + radius * 2, fill=fill, outline=outline, width=1)
-        self.canvas.create_oval(x1, y2 - radius * 2, x1 + radius * 2, y2, fill=fill, outline=outline, width=1)
-        self.canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, fill=fill, outline=outline, width=1)
+        self.canvas.create_oval(x1, y1, x1 + radius * 2, y1 + radius * 2, fill=fill, outline="")
+        self.canvas.create_oval(x2 - radius * 2, y1, x2, y1 + radius * 2, fill=fill, outline="")
+        self.canvas.create_oval(x1, y2 - radius * 2, x1 + radius * 2, y2, fill=fill, outline="")
+        self.canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, fill=fill, outline="")
 
     def _apply_no_activate_style(self) -> None:
         user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -289,18 +321,20 @@ class DesktopUI:
     def _update_overlay_text(self) -> None:
         color = COLORS.get(self.state, COLORS["ready"])
         title = {
-            "recording": "Listening…",
-            "transcribing": "Transcribing locally…",
-            "error": "Couldn’t complete dictation",
+            "recording": "Listening",
+            "transcribing": "Transcribing locally",
+            "error": "Dictation needs attention",
         }.get(self.state, self.state.title())
         subtitle = self.detail or (
             f"Release {self.listener.hotkey_display()} to transcribe"
             if self.state == "recording" and self.listener
-            else "Your audio stays on this computer"
+            else "Private • processed on this computer"
         )
-        if len(subtitle) > 46:
-            subtitle = subtitle[:43] + "…"
-        self.canvas.itemconfigure(self.mic, fill=color)
+        if len(subtitle) > 36:
+            subtitle = subtitle[:33] + "…"
+        for item in self.logo_mic_items:
+            self.canvas.itemconfigure(item, fill=color)
+        self.canvas.itemconfigure(self.state_dot, fill=color)
         self.canvas.itemconfigure(self.title, text=title)
         self.canvas.itemconfigure(self.subtitle, text=subtitle)
 
@@ -319,8 +353,14 @@ class DesktopUI:
                 amplitude = 4 + 9 * profile
             else:
                 amplitude = 3
-            x = 210 + index * 5
-            self.canvas.coords(bar, x, 38 - amplitude, x, 38 + amplitude)
+            x = self.bar_start + index * self.bar_spacing
+            self.canvas.coords(
+                bar,
+                x,
+                self.bar_center - amplitude,
+                x,
+                self.bar_center + amplitude,
+            )
             self.canvas.itemconfigure(bar, fill=color)
 
     def _status_text(self) -> str:
