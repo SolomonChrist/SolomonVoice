@@ -5,7 +5,7 @@ import pytest
 from config import Config
 from ui import DesktopUI
 from listener_v2 import State
-from settings_ui import SettingsWindow
+from settings_ui import BG, INPUT, SettingsWindow
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows overlay layout test")
@@ -41,6 +41,10 @@ def test_settings_actions_are_visible_inside_window():
         for button in (settings.defaults_button, settings.apply_button, settings.cancel_button):
             assert button.winfo_ismapped()
             assert button.winfo_rooty() + button.winfo_height() <= settings.window.winfo_rooty() + height
+        style = __import__("tkinter.ttk", fromlist=["Style"]).Style(settings.window)
+        assert style.lookup("SV.TButton", "background", ("active",)) == "#203855"
+        assert style.lookup("SV.TCombobox", "fieldbackground", ("readonly",)) == INPUT
+        assert style.lookup("Accent.TButton", "foreground", ("active",)) == BG
     finally:
         settings.shutdown()
         root.destroy()

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1
+
+- Redesigned Settings with a cohesive SolomonVoice dark visual system.
+- Removed Windows light-theme hover, focus, and selected-state bleed-through.
+- Added dark title-bar treatment, branded app icon/header, bordered cards, and clearer hierarchy.
+- Replaced small native checkboxes and radio buttons with accessible high-contrast selection chips.
+- Added layout and interaction-state regression coverage.
+
 ## 2.1.0
 
 - Added a native Settings window available from the tray.
