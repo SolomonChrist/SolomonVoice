@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 import queue
+from datetime import datetime
 from enum import Enum
 
 import numpy as np
@@ -13,7 +14,7 @@ import sounddevice as sd
 from audio_devices import capture_sample_rate, resolve_input_device
 from hotkey import NativeHotkey
 from injector import Injector
-from transcriber import Transcriber
+from transcriber import Transcriber, UnsafeTranscriptionError
 from whisper_models import model_path
 
 
@@ -30,11 +31,12 @@ class State(Enum):
 class ListenerV2:
     """Own the hotkey, microphone, transcription worker, and state transitions."""
 
-    def __init__(self, config, feedback, on_state=None, on_level=None):
+    def __init__(self, config, feedback, on_state=None, on_level=None, on_history=None):
         self.config = config
         self.feedback = feedback
         self.on_state = on_state or (lambda _state, _detail=None: None)
         self.on_level = on_level or (lambda _level: None)
+        self.on_history = on_history or (lambda: None)
 
         self.state = State.STARTING
         self.audio_chunks: list[np.ndarray] = []
@@ -50,6 +52,10 @@ class ListenerV2:
         self._commands = queue.Queue()
         self._controller_thread: threading.Thread | None = None
         self._pending_hotkeys = []
+        self._capture_ready = threading.Event()
+        self._last_audio = None
+        self._history = []
+        self._history_sequence = 0
 
         self.transcriber = Transcriber(
             config.get("whisper.model"),
@@ -236,13 +242,10 @@ class ListenerV2:
             self._generation += 1
             generation = self._generation
             self.audio_chunks = []
-            self.start_time = time.monotonic()
+            self._capture_ready.clear()
             self.target_window = self.injector.capture_target()
             self.state = State.RECORDING
-
-            # The tone finishes before the microphone opens, so it is not transcribed.
-            self.feedback.recording_start()
-            self.on_state(State.RECORDING, None)
+            self.on_state(State.RECORDING, "Preparing microphone…")
             try:
                 selection = self.config.get("audio.device")
                 capture_rate = capture_sample_rate(
@@ -271,6 +274,27 @@ class ListenerV2:
                 self.feedback.error(detail)
                 return
 
+        # Some USB and Bluetooth endpoints wake slowly. Do not tell the user to
+        # speak until PortAudio has delivered the first real block. The callback
+        # already retains that block, so speech begun early is not discarded.
+        if not self._capture_ready.wait(timeout=2.0):
+            self._close_stream()
+            with self._lock:
+                if not self._running or self._generation != generation:
+                    return
+                self.state = State.ERROR
+                self.audio_chunks = []
+            detail = "The selected microphone opened but did not deliver audio. Choose another input in Settings."
+            self.on_state(State.ERROR, detail)
+            self.feedback.error(detail)
+            return
+        with self._lock:
+            if not self._running or self._generation != generation or self.state != State.RECORDING:
+                return
+            self.start_time = time.monotonic()
+        self.feedback.recording_start()
+        self.on_state(State.RECORDING, "Microphone ready — speak now")
+
         self._start_cancel_hotkey(generation)
 
         self._spawn_worker(
@@ -285,9 +309,10 @@ class ListenerV2:
             if expected_generation is not None and self._generation != expected_generation:
                 return
             generation = self._generation
-            duration = time.monotonic() - self.start_time
             target_window = self.target_window
             capture_rate = getattr(self, "capture_sample_rate", self.config.get("audio.sample_rate"))
+            captured_frames = sum(len(chunk) for chunk in self.audio_chunks)
+            duration = captured_frames / float(capture_rate) if capture_rate else 0.0
             self.state = State.TRANSCRIBING
 
         if not self._stop_cancel_hotkey():
@@ -351,6 +376,8 @@ class ListenerV2:
 
     def _finish_recording(self, generation, duration, chunks, target_window, capture_rate=None) -> None:
         error_notified = False
+        text = ""
+        audio = None
         try:
             if not self._generation_is_current(generation):
                 return
@@ -362,6 +389,8 @@ class ListenerV2:
             target_rate = self.config.get("audio.sample_rate")
             if capture_rate and int(capture_rate) != int(target_rate):
                 audio = self._resample_audio(audio, int(capture_rate), int(target_rate))
+            with self._lock:
+                self._last_audio = audio.copy()
             rms = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
             if rms < self.config.get("audio.silence_rms", 0.003):
                 raise RuntimeError("No speech detected")
@@ -384,9 +413,18 @@ class ListenerV2:
                     return
                 self.injector.inject(text, target_window=target_window)
                 self.feedback.transcription_done(text)
+            self._append_history(text, "Inserted", None)
         except Exception as exc:
             if self._generation_is_current(generation):
                 error_notified = True
+                blocked_text = exc.transcript if isinstance(exc, UnsafeTranscriptionError) else text
+                if isinstance(exc, UnsafeTranscriptionError):
+                    history_status = "Blocked"
+                elif blocked_text:
+                    history_status = "Not inserted"
+                else:
+                    history_status = "Failed"
+                self._append_history(blocked_text, history_status, str(exc))
                 self.feedback.error(str(exc))
                 self.on_state(State.ERROR, str(exc))
         finally:
@@ -423,8 +461,84 @@ class ListenerV2:
             print(f"[SolomonVoice] Audio status: {status}", flush=True)
         chunk = indata.copy()
         self.audio_chunks.append(chunk)
+        self._capture_ready.set()
         rms = float(np.sqrt(np.mean(np.square(chunk, dtype=np.float64))))
         self.on_level(min(1.0, rms * 18.0))
+
+    def has_retry_audio(self) -> bool:
+        with self._lock:
+            return self._last_audio is not None and bool(len(self._last_audio))
+
+    def history_snapshot(self):
+        """Return transcript metadata without exposing retained audio buffers."""
+        with self._lock:
+            return [dict(item) for item in reversed(self._history)]
+
+    def retry_last(self, insert=False) -> bool:
+        """Rerun the most recent in-memory recording with the active model."""
+        with self._lock:
+            if self.state not in {State.IDLE, State.PAUSED} or self._last_audio is None:
+                return False
+            return_state = self.state
+            audio = self._last_audio.copy()
+            target_window = self.injector.capture_target() if insert else None
+            self._generation += 1
+            generation = self._generation
+            self.state = State.TRANSCRIBING
+        model_name = getattr(self.transcriber, "model_name", self.config.get("whisper.model", "Whisper"))
+        self.on_state(State.TRANSCRIBING, f"Retrying with {model_name}…")
+        self._spawn_worker(
+            lambda: self._finish_retry(generation, audio, target_window, return_state, insert),
+            "SolomonVoiceRetry",
+        )
+        return True
+
+    def _finish_retry(self, generation, audio, target_window, return_state, insert):
+        text = ""
+        error = None
+        status = "Rerun"
+        try:
+            text = self.transcriber.transcribe(audio, language=self.config.get("whisper.language"))
+            if insert:
+                with self._lock:
+                    if not self._running or self._generation != generation:
+                        return
+                    self.injector.inject(text, target_window=target_window)
+                self.feedback.transcription_done(text)
+                status = "Rerun inserted"
+        except Exception as exc:
+            error = exc
+            text = exc.transcript if isinstance(exc, UnsafeTranscriptionError) else text
+            if isinstance(exc, UnsafeTranscriptionError):
+                status = "Blocked"
+            elif text:
+                status = "Not inserted"
+            else:
+                status = "Failed"
+            self.feedback.error(str(exc))
+        finally:
+            self._append_history(text, status, str(error) if error else None)
+            with self._lock:
+                if self._running and self._generation == generation:
+                    self.state = return_state
+                    self.on_state(return_state, str(error) if error else None)
+
+    def _append_history(self, text, status, detail):
+        with self._lock:
+            self._history_sequence += 1
+            self._history.append(
+                {
+                    "id": self._history_sequence,
+                    "time": datetime.now().strftime("%I:%M:%S %p"),
+                    "model": getattr(self.transcriber, "model_name", self.config.get("whisper.model", "Whisper")),
+                    "status": status,
+                    "text": text or "",
+                    "detail": detail or "",
+                }
+            )
+            if len(self._history) > 20:
+                del self._history[:-20]
+        self.on_history()
 
     def _close_stream(self) -> bool:
         """Close PortAudio ownership, using abort as a stop fallback.

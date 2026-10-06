@@ -31,6 +31,7 @@ def main() -> int:
             feedback,
             on_state=ui.notify_state,
             on_level=ui.notify_level,
+            on_history=ui.notify_history,
         )
         ui.bind_listener(listener)
         ui.start_tray()

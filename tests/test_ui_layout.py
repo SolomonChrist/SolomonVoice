@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from config import Config
+from history_ui import HistoryWindow
 from ui import DesktopUI
 from listener_v2 import State
 from settings_ui import BG, INPUT, SettingsWindow
@@ -52,4 +53,40 @@ def test_settings_actions_are_visible_inside_window():
         assert style.lookup("SV.Vertical.TScrollbar", "background", ("active",)) == "#203855"
     finally:
         settings.shutdown()
+        root.destroy()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows history layout test")
+def test_history_actions_are_visible_and_use_dark_selection():
+    class Listener:
+        def history_snapshot(self):
+            return [
+                {
+                    "id": 1,
+                    "time": "01:23:45 PM",
+                    "model": "base",
+                    "status": "Blocked",
+                    "text": "Repeated output was blocked.",
+                    "detail": "Whisper produced repeated text.",
+                }
+            ]
+
+        def has_retry_audio(self):
+            return True
+
+        def retry_last(self, insert=False):
+            return not insert
+
+    root = __import__("tkinter").Tk()
+    root.withdraw()
+    history = HistoryWindow(root, Listener(), was_paused=True)
+    try:
+        history.window.update()
+        assert history.tree.winfo_ismapped()
+        assert history.retry_button.winfo_ismapped()
+        assert history.copy_button.winfo_ismapped()
+        style = __import__("tkinter.ttk", fromlist=["Style"]).Style(history.window)
+        assert style.lookup("History.Treeview", "background", ("selected",)) == "#172A43"
+    finally:
+        history.shutdown()
         root.destroy()

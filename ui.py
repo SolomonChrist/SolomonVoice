@@ -14,6 +14,7 @@ from ctypes import wintypes
 import pystray
 from PIL import Image, ImageDraw
 
+from history_ui import HistoryWindow
 from listener_v2 import State
 from settings_ui import SettingsWindow
 
@@ -90,6 +91,7 @@ class DesktopUI:
         self._tray = None
         self._tray_thread = None
         self._settings_window = None
+        self._history_window = None
         self._bars = []
         self._build_overlay()
         self.root.after(25, self._poll)
@@ -109,12 +111,28 @@ class DesktopUI:
                 lambda _item: "Resume listening" if self.state == "paused" else "Pause listening",
                 self._request_toggle,
                 default=True,
-                enabled=lambda _item: self._settings_window is None,
+                enabled=lambda _item: self._settings_window is None and self._history_window is None,
             ),
             pystray.MenuItem(
                 "Settings…",
                 self._request_settings,
-                enabled=lambda _item: self.state != "starting",
+                enabled=lambda _item: self.state != "starting" and self._history_window is None,
+            ),
+            pystray.MenuItem(
+                "Session history…",
+                self._request_history,
+                enabled=lambda _item: self.state != "starting" and self._settings_window is None,
+            ),
+            pystray.MenuItem(
+                "Retry last into active app",
+                self._request_retry,
+                enabled=lambda _item: bool(
+                    self.listener
+                    and self.listener.has_retry_audio()
+                    and self.state == "ready"
+                    and self._settings_window is None
+                    and self._history_window is None
+                ),
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit SolomonVoice (releases hotkey)", self._request_exit),
@@ -141,6 +159,9 @@ class DesktopUI:
     def notify_level(self, level) -> None:
         self._events.put(("level", float(level)))
 
+    def notify_history(self) -> None:
+        self._events.put(("history_updated",))
+
     def shutdown(self) -> None:
         if self._closing:
             return
@@ -148,6 +169,9 @@ class DesktopUI:
         if self._settings_window:
             self._settings_window.shutdown()
             self._settings_window = None
+        if getattr(self, "_history_window", None):
+            self._history_window.shutdown()
+            self._history_window = None
         if self.listener:
             self.listener.stop()
         if self._tray:
@@ -318,6 +342,16 @@ class DesktopUI:
                 self.listener.toggle_paused()
             elif event[0] == "settings":
                 self._open_settings()
+            elif event[0] == "history":
+                self._open_history()
+            elif event[0] == "history_updated":
+                if self._history_window:
+                    self._history_window.refresh()
+                self._update_tray()
+            elif event[0] == "retry":
+                # Let the tray menu close so Windows restores the previous text
+                # target before retry captures it for safe insertion.
+                self.root.after(180, self._retry_last_into_active_app)
             elif event[0] == "exit":
                 self.shutdown()
                 return
@@ -412,10 +446,27 @@ class DesktopUI:
     def _request_settings(self, _icon, _item) -> None:
         self._events.put(("settings",))
 
+    def _request_history(self, _icon, _item) -> None:
+        self._events.put(("history",))
+
+    def _request_retry(self, _icon, _item) -> None:
+        self._events.put(("retry",))
+
+    def _retry_last_into_active_app(self) -> None:
+        if not self.listener or not self.listener.retry_last(insert=True):
+            messagebox.showinfo(
+                "Retry unavailable",
+                "There is no recording available to retry, or SolomonVoice is busy.",
+                parent=self.root,
+            )
+
     def _open_settings(self) -> None:
         if self._settings_window:
             self._settings_window.window.lift()
             self._settings_window.window.focus_force()
+            return
+        if getattr(self, "_history_window", None):
+            self._history_window.window.lift()
             return
         if not self.listener:
             return
@@ -462,6 +513,38 @@ class DesktopUI:
 
     def _settings_closed(self) -> None:
         self._settings_window = None
+
+    def _open_history(self) -> None:
+        if self._history_window:
+            self._history_window.window.lift()
+            self._history_window.window.focus_force()
+            return
+        if self._settings_window or not self.listener:
+            return
+        was_paused = self.listener.state == State.PAUSED
+        if not was_paused:
+            self.listener.pause()
+        if self.listener.state != State.PAUSED:
+            messagebox.showerror(
+                "SolomonVoice Session History",
+                "Listening could not be paused safely. Close other SolomonVoice windows and try again.",
+                parent=self.root,
+            )
+            return
+        try:
+            self._history_window = HistoryWindow(
+                self.root,
+                self.listener,
+                was_paused=was_paused,
+                on_closed=self._history_closed,
+            )
+        except Exception as exc:
+            if not was_paused:
+                self.listener.resume()
+            messagebox.showerror("SolomonVoice Session History", str(exc), parent=self.root)
+
+    def _history_closed(self) -> None:
+        self._history_window = None
 
     def _hide_if_error(self) -> None:
         if self.state == "error":

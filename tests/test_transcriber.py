@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from transcriber import Transcriber
+from transcriber import Transcriber, UnsafeTranscriptionError, validate_transcript
 
 
 class FakeModel:
@@ -28,6 +28,18 @@ def test_transcriber_uses_in_memory_audio_and_preserves_dictated_brackets():
     assert result == "Keep [this]"
     assert transcriber.model.kwargs["condition_on_previous_text"] is False
     assert transcriber.model.kwargs["task"] == "transcribe"
+    assert transcriber.model.kwargs["temperature"] == (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
+
+
+def test_repeated_character_decoder_loop_is_blocked():
+    with pytest.raises(UnsafeTranscriptionError, match="blocked") as error:
+        validate_transcript("So brands " + "m" * 60 + " my actual channel")
+
+    assert error.value.transcript.startswith("So brands")
+
+
+def test_normal_repeated_letters_are_not_blocked():
+    assert validate_transcript("I really like coffee") == "I really like coffee"
 
 
 def test_missing_cache_fails_closed_without_calling_whisper(monkeypatch, tmp_path):

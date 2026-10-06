@@ -318,6 +318,54 @@ def test_configure_model_requires_an_installed_checkpoint(monkeypatch, tmp_path)
         listener.configure_model("small", str(tmp_path))
 
 
+def test_retry_keeps_audio_in_memory_and_adds_session_history(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.IDLE
+    listener._last_audio = np.ones(1600, dtype=np.float32)
+    listener.transcriber.release.set()
+
+    assert listener.retry_last(insert=False) is True
+    for worker in list(listener._workers):
+        worker.join(timeout=2)
+
+    history = listener.history_snapshot()
+    assert history[0]["status"] == "Rerun"
+    assert history[0]["text"] == "private text"
+    assert "audio" not in history[0]
+
+
+def test_recording_waits_for_first_microphone_block_and_keeps_it(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.IDLE
+    listener.config.data["audio"]["sample_rate"] = 16000
+
+    class ReadyStream:
+        def __init__(self, **kwargs):
+            self.callback = kwargs["callback"]
+
+        def start(self):
+            self.callback(np.ones((320, 1), dtype=np.float32), 320, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(listener_v2.sd, "InputStream", ReadyStream)
+    monkeypatch.setattr(listener_v2, "capture_sample_rate", lambda *_args: 16000)
+    monkeypatch.setattr(listener_v2, "resolve_input_device", lambda *_args: None)
+
+    listener._start_recording()
+
+    assert listener.state == State.RECORDING
+    assert listener._capture_ready.is_set()
+    assert len(listener.audio_chunks) == 1
+    assert len(listener.audio_chunks[0]) == 320
+
+
 def test_stale_escape_registration_is_immediately_released(monkeypatch):
     listener = make_listener(monkeypatch)
     listener._running = True

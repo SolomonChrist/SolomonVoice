@@ -42,3 +42,37 @@ def test_capture_rate_falls_back_to_native_rate():
         FakeSoundDevice(),
     )
     assert rate == 48000
+
+
+def test_capture_rate_prefers_native_to_avoid_driver_buffering():
+    checked = []
+
+    class FakeSoundDevice:
+        def check_input_settings(self, **kwargs):
+            checked.append(kwargs["samplerate"])
+
+    rate = capture_sample_rate(
+        {"name": "USB Podcast Mic", "hostapi": "WASAPI"},
+        16000,
+        MICROPHONES,
+        FakeSoundDevice(),
+    )
+
+    assert rate == 48000
+    assert checked == [48000]
+
+
+def test_capture_rate_uses_whisper_rate_if_native_is_unavailable():
+    class FakeSoundDevice:
+        def check_input_settings(self, **kwargs):
+            if kwargs["samplerate"] == 48000:
+                raise RuntimeError("native unavailable")
+
+    rate = capture_sample_rate(
+        {"name": "USB Podcast Mic", "hostapi": "WASAPI"},
+        16000,
+        MICROPHONES,
+        FakeSoundDevice(),
+    )
+
+    assert rate == 16000

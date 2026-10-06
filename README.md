@@ -2,7 +2,7 @@
 
 SolomonVoice is private push-to-talk dictation for Windows. Hold a global shortcut, speak, release it, and local OpenAI Whisper types the result at the active caret.
 
-Version 2.2 adds visible local-model and storage management to the native Settings window. It builds on the safer Windows-owned hotkey registration, direct Unicode input, stateful tray icon, non-activating voice meter, Pause/Resume, and real Exit behavior introduced in v2.
+Version 2.2 adds visible local-model and storage management, private session history, and retry controls. It builds on the safer Windows-owned hotkey registration, direct Unicode input, stateful tray icon, non-activating voice meter, Pause/Resume, and real Exit behavior introduced in v2.
 
 > Experimental software. Review dictated text before sending or publishing it.
 
@@ -24,6 +24,7 @@ SolomonVoice does use clearly declared open-source runtime libraries, including 
 - **Focus protection:** if the active window changes while Whisper is transcribing, text is not inserted into the new window.
 - **Privacy cleanup:** recorded audio stays in memory instead of being written to a temporary WAV file; transcript contents are not printed to the console.
 - **Silence gate:** very low-level captures are rejected before Whisper to reduce silence hallucinations.
+- **Decoder guard:** Whisper retries suspicious segments, and repeated-character or repeated-word loops are blocked before they can be typed.
 - **Single instance:** a Windows mutex prevents duplicate hotkeys, microphones, and duplicate text insertion.
 
 ## Requirements
@@ -76,6 +77,8 @@ Both background launchers use `pyw`, so SolomonVoice lives in the notification a
 Right-click the tray microphone for:
 
 - **Settings…** — choose or install a local Whisper model, change its storage folder, choose a microphone, test its level, change the dictation shortcut, and adjust behavior without editing JSON.
+- **Session history…** — inspect the latest 20 attempts, rerun the most recent in-memory audio without typing it, or explicitly copy a transcript. History disappears when SolomonVoice exits.
+- **Retry last into active app** — rerun the latest recording with the active model and type it into the currently focused text target.
 - **Pause listening** — immediately unregisters Ctrl+Space and closes the microphone. The shortcut behaves normally in every app.
 - **Resume listening** — registers the shortcut again.
 - **Exit SolomonVoice** — invalidates pending work, closes the mic, unregisters the hotkey, removes the tray icon, and terminates the process.

@@ -10,6 +10,27 @@ import numpy as np
 from whisper_models import model_path
 
 
+class UnsafeTranscriptionError(RuntimeError):
+    """Raised when Whisper returns text that is unsafe to type automatically."""
+
+    def __init__(self, message, transcript=""):
+        super().__init__(message)
+        self.transcript = transcript
+
+
+def validate_transcript(text: str) -> str:
+    """Block obvious decoder loops before they can be injected as keystrokes."""
+    repeated_character = re.search(r"([^\s])\1{7,}", text, flags=re.IGNORECASE)
+    repeated_word = re.search(r"\b([\w'-]+)(?:\s+\1){5,}\b", text, flags=re.IGNORECASE)
+    if repeated_character or repeated_word:
+        raise UnsafeTranscriptionError(
+            "Whisper produced repeated text, so SolomonVoice blocked it instead of typing garbage. "
+            "Open Session history to inspect or rerun the recording.",
+            transcript=text,
+        )
+    return text
+
+
 class Transcriber:
     """Lazily load Whisper once and transcribe in-memory audio."""
 
@@ -51,7 +72,13 @@ class Transcriber:
             language=language,
             task=self.task,
             fp16=False,
-            temperature=0,
+            # Whisper's temperature ladder retries segments whose compression
+            # ratio or confidence indicates a decoder loop. A scalar zero
+            # disabled that fallback and could produce long repeated letters.
+            temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+            compression_ratio_threshold=2.4,
+            logprob_threshold=-1.0,
+            no_speech_threshold=0.6,
             condition_on_previous_text=False,
         )
         text = result.get("text", "").strip()
@@ -63,4 +90,4 @@ class Transcriber:
         ).strip()
         elapsed = time.monotonic() - start_time
         print(f"[SolomonVoice] Transcription complete in {elapsed:.1f}s", flush=True)
-        return text
+        return validate_transcript(text)

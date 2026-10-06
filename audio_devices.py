@@ -95,22 +95,19 @@ def resolve_input_device(selection, microphones=None):
 
 
 def capture_sample_rate(selection, requested_rate, microphones=None, sd_module=sd):
-    """Use 16 kHz when supported, otherwise the endpoint's native rate."""
+    """Prefer the endpoint's native rate, then resample in memory for Whisper.
+
+    Bluetooth and USB drivers can report that a converted rate is supported
+    while adding a large wake-up buffer or returning incomplete leading audio.
+    Native capture is more reliable and SolomonVoice already resamples safely.
+    """
     microphones = input_microphones(sd_module) if microphones is None else microphones
     device = resolve_input_device(selection, microphones)
+    microphone = selected_microphone(selection, microphones)
+    if microphone is None:
+        raise RuntimeError("Windows did not return an available default microphone")
+    native_rate = int(microphone.sample_rate)
     try:
-        sd_module.check_input_settings(
-            device=device,
-            channels=1,
-            dtype="float32",
-            samplerate=requested_rate,
-        )
-        return int(requested_rate)
-    except Exception:
-        microphone = selected_microphone(selection, microphones)
-        if microphone is None:
-            raise RuntimeError("Windows did not return an available default microphone")
-        native_rate = int(microphone.sample_rate)
         sd_module.check_input_settings(
             device=device,
             channels=1,
@@ -118,6 +115,14 @@ def capture_sample_rate(selection, requested_rate, microphones=None, sd_module=s
             samplerate=native_rate,
         )
         return native_rate
+    except Exception:
+        sd_module.check_input_settings(
+            device=device,
+            channels=1,
+            dtype="float32",
+            samplerate=requested_rate,
+        )
+        return int(requested_rate)
 
 
 def selected_microphone(selection, microphones):

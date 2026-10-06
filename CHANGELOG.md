@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.1
+
+- Fixed lost opening words on slow-waking USB and Bluetooth microphones by opening the input first and waiting for the first real audio block.
+- Capture now prefers each Windows endpoint's native sample rate before local resampling.
+- Restored Whisper's decoding fallback ladder and block pathological repeated-letter or repeated-word output before insertion.
+- Added private session history and retry controls; transcripts and the latest retry audio remain memory-only and disappear on exit.
+
 ## 2.2.0
 
 - Added a visible Whisper model selector with installed-state and size/speed guidance.
