@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0
+
+- Added a native Settings window available from the tray.
+- Added stable microphone selection with a live speaking-level test.
+- Added shortcut recording, conflict detection, and rollback to the previous shortcut on failure.
+- Added hold-to-talk and press-once toggle recording modes.
+- Added Escape-to-cancel during an active recording.
+- Added optional launch at Windows sign-in.
+- Added per-user, atomic settings under `%LOCALAPPDATA%\SolomonVoice`.
+- Added controls for waveform visibility/position, reduced motion, and sound feedback.
+
 ## 2.0.1 — 2026-10-06
 
 - Added a visible SolomonVoice brand label and microphone mark to the recording overlay.

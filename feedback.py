@@ -36,6 +36,11 @@ class Feedback:
         self._beep(1000, 150)
         self._print("Done — text inserted")
 
+    def recording_canceled(self):
+        """Signal that a recording was intentionally discarded."""
+        self._beep(500, 70)
+        self._print("Recording canceled")
+
     def error(self, message):
         """Signal an error.
 

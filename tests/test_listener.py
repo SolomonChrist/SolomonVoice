@@ -1,6 +1,7 @@
 import threading
 
 import numpy as np
+import pytest
 
 import listener_v2
 from listener_v2 import ListenerV2, State
@@ -39,6 +40,9 @@ class FakeFeedback:
         pass
 
     def transcription_done(self, _text):
+        pass
+
+    def recording_canceled(self):
         pass
 
     def error(self, _message):
@@ -235,3 +239,121 @@ def test_pause_uses_abort_fallback_before_confirming_success(monkeypatch):
     assert listener.state == State.PAUSED
     assert listener.stream is None
     assert stream.aborted and stream.closed
+
+
+def test_toggle_mode_ignores_release_and_second_press_stops(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener.config.data["behavior"]["recording_mode"] = "toggle"
+    listener._running = True
+    listener.state = State.IDLE
+    transitions = []
+
+    def start():
+        transitions.append("start")
+        listener.state = State.RECORDING
+
+    def stop(expected_generation=None):
+        transitions.append("stop")
+        listener.state = State.TRANSCRIBING
+
+    listener._start_recording = start
+    listener._stop_recording = stop
+    controller = threading.Thread(target=listener._controller_loop)
+    controller.start()
+    epoch = listener._hotkey_epoch
+    listener._commands.put(("press", epoch))
+    listener._commands.put(("release", epoch))
+    listener._commands.put(("press", epoch))
+    listener._commands.put(None)
+    controller.join(timeout=1)
+
+    assert transitions == ["start", "stop"]
+
+
+def test_cancel_discards_audio_without_transcription(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.RECORDING
+    listener._generation = 4
+    listener.audio_chunks = [np.ones((16, 1), dtype=np.float32)]
+    listener._close_stream = lambda: True
+    listener._stop_cancel_hotkey = lambda: True
+
+    listener._cancel_recording(expected_generation=4)
+
+    assert listener.state == State.IDLE
+    assert listener.audio_chunks == []
+    assert listener._generation == 5
+
+
+def test_configure_shortcut_probes_candidate_before_replacing(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.PAUSED
+    old_hotkey = listener.hotkey
+
+    listener.configure_shortcut("f9", ["ctrl", "shift"])
+
+    assert listener.hotkey is not old_hotkey
+    assert listener.hotkey.active is False
+
+
+def test_stale_escape_registration_is_immediately_released(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.RECORDING
+    listener._generation = 9
+    created = []
+
+    class RacingHotkey(FakeHotkey):
+        def __init__(self, *_args):
+            super().__init__()
+            self.stop_calls = 0
+            created.append(self)
+
+        def start(self):
+            super().start()
+            listener._running = False
+            listener.state = State.STOPPED
+
+        def stop(self):
+            self.stop_calls += 1
+            super().stop()
+
+    monkeypatch.setattr(listener_v2, "NativeHotkey", RacingHotkey)
+    listener._start_cancel_hotkey(9)
+
+    assert listener.cancel_hotkey is None
+    assert created[0].stop_calls == 1
+    assert created[0].active is False
+
+
+def test_failed_escape_teardown_retains_handle_for_retry(monkeypatch):
+    listener = make_listener(monkeypatch)
+
+    class FailingHotkey(FakeHotkey):
+        def stop(self):
+            raise RuntimeError("unregister failed")
+
+    candidate = FailingHotkey()
+    listener.cancel_hotkey = candidate
+
+    assert listener._stop_cancel_hotkey() is False
+    assert listener.cancel_hotkey is candidate
+
+
+def test_failed_shortcut_probe_is_retained_for_exit_cleanup(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.PAUSED
+
+    class FailingHotkey(FakeHotkey):
+        def stop(self):
+            raise RuntimeError("unregister failed")
+
+    monkeypatch.setattr(listener_v2, "NativeHotkey", FailingHotkey)
+    with pytest.raises(RuntimeError, match="unregister failed"):
+        listener.configure_shortcut("f9", ["ctrl"])
+
+    assert len(listener._pending_hotkeys) == 1
+    assert listener.state == State.ERROR

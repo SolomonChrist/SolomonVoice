@@ -18,7 +18,10 @@
     "min_recording_seconds": 0.5,
     "max_recording_seconds": 30,
     "append_space": true,
-    "require_same_window": true
+    "require_same_window": true,
+    "recording_mode": "hold",
+    "escape_to_cancel": true,
+    "start_with_windows": false
   },
   "visual": {
     "enabled": true,

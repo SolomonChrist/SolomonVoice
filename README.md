@@ -2,7 +2,7 @@
 
 SolomonVoice is private push-to-talk dictation for Windows. Hold a global shortcut, speak, release it, and local OpenAI Whisper types the result at the active caret.
 
-Version 2 replaces the old global keyboard hook and clipboard paste path with Windows-owned hotkey registration and direct Unicode input. It also adds a stateful tray icon, a non-activating voice meter, Pause/Resume, and a real Exit command that releases the hotkey and microphone.
+Version 2.1 replaces the old global keyboard hook and clipboard paste path with Windows-owned hotkey registration and direct Unicode input. It adds a stateful tray icon, a non-activating voice meter, Pause/Resume, a native settings window, and a real Exit command that releases the hotkey and microphone.
 
 > Experimental software. Review dictated text before sending or publishing it.
 
@@ -67,15 +67,27 @@ Both background launchers use `pyw`, so SolomonVoice lives in the notification a
 
 Right-click the tray microphone for:
 
+- **Settings…** — choose a microphone, test its level, change the dictation shortcut, and adjust behavior without editing JSON.
 - **Pause listening** — immediately unregisters Ctrl+Space and closes the microphone. The shortcut behaves normally in every app.
 - **Resume listening** — registers the shortcut again.
 - **Exit SolomonVoice** — invalidates pending work, closes the mic, unregisters the hotkey, removes the tray icon, and terminates the process.
 
 Double-clicking the tray icon toggles Pause/Resume.
 
-## Configuration
+## Settings
 
-Edit `solomonvoice_config.json` before launching:
+Open **Settings…** from the tray menu. SolomonVoice temporarily pauses listening while the window is open so shortcut capture and microphone testing cannot interfere with other applications.
+
+- Choose **Windows default** or a named microphone. Named devices are saved by device name and Windows audio host rather than a fragile numeric index.
+- Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
+- Choose hold-to-talk or press-once toggle mode. In either mode, **Escape** can discard the current recording without transcribing it.
+- Enable launch at Windows sign-in, move or hide the waveform, reduce animation, and toggle sounds.
+
+Settings are atomically stored for the current Windows user at `%LOCALAPPDATA%\SolomonVoice\settings.json`. The repository configuration remains the product default and is no longer edited for normal preference changes.
+
+## Advanced configuration
+
+The tray Settings window covers normal choices. `solomonvoice_config.json` remains available for model, language, sample-rate, and other advanced defaults:
 
 ```json
 {
@@ -98,7 +110,10 @@ Edit `solomonvoice_config.json` before launching:
     "min_recording_seconds": 0.5,
     "max_recording_seconds": 30,
     "append_space": true,
-    "require_same_window": true
+    "require_same_window": true,
+    "recording_mode": "hold",
+    "escape_to_cancel": true,
+    "start_with_windows": false
   },
   "visual": {
     "enabled": true,
@@ -114,7 +129,7 @@ Edit `solomonvoice_config.json` before launching:
 
 Useful shortcut keys include `space`, letters or digits, `f1`–`f24`, `tab`, `escape`, `insert`, `delete`, `home`, `end`, and arrow keys. Modifiers may include `ctrl`, `alt`, `shift`, and `win`. Windows reserves some combinations, and SolomonVoice shows an error if another application already owns the selected chord.
 
-Set `audio.device` to `null` for the current Windows default microphone. Numeric device indexes are supported but can change when USB or Bluetooth devices reconnect. Run `py list_microphones.py` to inspect current indexes.
+Set `audio.device` to `null` for the current Windows default microphone. The Settings window stores a stable device name and audio-host identity. Numeric indexes remain supported for older configurations but can change when USB or Bluetooth devices reconnect.
 
 ### Choosing a model
 

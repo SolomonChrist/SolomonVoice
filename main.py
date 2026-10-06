@@ -20,7 +20,7 @@ def main() -> int:
     listener = None
     try:
         instance = SingleInstance()
-        config = Config(config_path)
+        config = Config(config_path, user_path=Config.default_user_path())
         feedback = Feedback(
             sound_enabled=config.get("feedback.sound_enabled"),
             console_enabled=config.get("feedback.console_enabled"),
@@ -44,6 +44,11 @@ def main() -> int:
         try:
             listener.start()
             feedback.startup(config_path, listener.hotkey_display())
+            if config.load_warning:
+                feedback.error(config.load_warning)
+                ui.notify_state(State.ERROR, config.load_warning)
+            if "--settings" in sys.argv[1:]:
+                ui.root.after(350, ui.open_settings)
         except Exception as exc:
             feedback.error(str(exc))
             ui.notify_state(State.ERROR, str(exc))

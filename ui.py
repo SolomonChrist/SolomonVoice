@@ -8,10 +8,14 @@ import queue
 import threading
 import time
 import tkinter as tk
+from tkinter import messagebox
 from ctypes import wintypes
 
 import pystray
 from PIL import Image, ImageDraw
+
+from listener_v2 import State
+from settings_ui import SettingsWindow
 
 
 COLORS = {
@@ -85,12 +89,17 @@ class DesktopUI:
         self._closing = False
         self._tray = None
         self._tray_thread = None
+        self._settings_window = None
         self._bars = []
         self._build_overlay()
         self.root.after(25, self._poll)
 
     def bind_listener(self, listener) -> None:
         self.listener = listener
+
+    def open_settings(self) -> None:
+        """Open Settings on the Tk thread (also used by the --settings launch option)."""
+        self._open_settings()
 
     def start_tray(self) -> None:
         menu = pystray.Menu(
@@ -100,7 +109,14 @@ class DesktopUI:
                 lambda _item: "Resume listening" if self.state == "paused" else "Pause listening",
                 self._request_toggle,
                 default=True,
+                enabled=lambda _item: self._settings_window is None,
             ),
+            pystray.MenuItem(
+                "Settings…",
+                self._request_settings,
+                enabled=lambda _item: self.state != "starting",
+            ),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit SolomonVoice (releases hotkey)", self._request_exit),
         )
         self._tray = pystray.Icon(
@@ -129,6 +145,9 @@ class DesktopUI:
         if self._closing:
             return
         self._closing = True
+        if self._settings_window:
+            self._settings_window.shutdown()
+            self._settings_window = None
         if self.listener:
             self.listener.stop()
         if self._tray:
@@ -295,8 +314,10 @@ class DesktopUI:
                 self._set_state(event[1], event[2])
             elif event[0] == "level":
                 self.level = event[1]
-            elif event[0] == "toggle" and self.listener:
+            elif event[0] == "toggle" and self.listener and self._settings_window is None:
                 self.listener.toggle_paused()
+            elif event[0] == "settings":
+                self._open_settings()
             elif event[0] == "exit":
                 self.shutdown()
                 return
@@ -387,6 +408,60 @@ class DesktopUI:
 
     def _request_exit(self, _icon, _item) -> None:
         self._events.put(("exit",))
+
+    def _request_settings(self, _icon, _item) -> None:
+        self._events.put(("settings",))
+
+    def _open_settings(self) -> None:
+        if self._settings_window:
+            self._settings_window.window.lift()
+            self._settings_window.window.focus_force()
+            return
+        if not self.listener:
+            return
+        was_paused = self.listener.state == State.PAUSED
+        if not was_paused:
+            self.listener.pause()
+        if self.listener.state != State.PAUSED:
+            feedback = getattr(self.listener, "feedback", None)
+            if feedback:
+                feedback.error("Settings could not open because listening did not pause safely")
+            messagebox.showerror(
+                "SolomonVoice could not open Settings",
+                "Listening could not be paused safely. Use Exit SolomonVoice to release its input resources, then start it again.",
+                parent=self.root,
+            )
+            return
+        try:
+            self._settings_window = SettingsWindow(
+                self.root,
+                self.config,
+                self.listener,
+                was_paused=was_paused,
+                on_saved=self._settings_saved,
+                on_closed=self._settings_closed,
+            )
+        except Exception as exc:
+            if not was_paused:
+                self.listener.resume()
+            feedback = getattr(self.listener, "feedback", None)
+            if feedback:
+                feedback.error(f"Settings could not open: {exc}")
+            messagebox.showerror(
+                "SolomonVoice Settings",
+                f"Settings could not open.\n\n{exc}",
+                parent=self.root,
+            )
+
+    def _settings_saved(self) -> None:
+        self._position_overlay()
+        if not self.config.get("visual.enabled", True):
+            self.overlay.withdraw()
+        self._update_overlay_text()
+        self._update_tray()
+
+    def _settings_closed(self) -> None:
+        self._settings_window = None
 
     def _hide_if_error(self) -> None:
         if self.state == "error":

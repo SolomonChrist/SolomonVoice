@@ -3,7 +3,7 @@ cd /d "%~dp0"
 
 echo.
 echo ========================================
-echo Starting SolomonVoice v2.0
+echo Starting SolomonVoice v2.1
 echo ========================================
 echo.
 echo This is an offline voice-to-text tool.
@@ -14,7 +14,7 @@ echo.
 echo Hotkey: Ctrl+Space
 echo Model: Tiny (configured in solomonvoice_config.json)
 echo Transcription: Local and offline after one-time model setup
-echo A tray icon will appear. Right-click it to pause or exit.
+echo A tray icon will appear. Right-click it for Settings, Pause, or Exit.
 echo.
 echo Exit from the tray menu to release the hotkey.
 echo ========================================

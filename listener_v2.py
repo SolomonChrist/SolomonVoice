@@ -10,6 +10,7 @@ from enum import Enum
 import numpy as np
 import sounddevice as sd
 
+from audio_devices import capture_sample_rate, resolve_input_device
 from hotkey import NativeHotkey
 from injector import Injector
 from transcriber import Transcriber
@@ -47,6 +48,7 @@ class ListenerV2:
         self._workers: set[threading.Thread] = set()
         self._commands = queue.Queue()
         self._controller_thread: threading.Thread | None = None
+        self._pending_hotkeys = []
 
         self.transcriber = Transcriber(
             config.get("whisper.model"),
@@ -62,6 +64,7 @@ class ListenerV2:
             self._on_hotkey_press,
             self._on_hotkey_release,
         )
+        self.cancel_hotkey = None
 
     def start(self) -> None:
         with self._lock:
@@ -98,11 +101,19 @@ class ListenerV2:
         except Exception as exc:
             hotkey_error = exc
         finally:
+            cancel_hotkey_closed = self._stop_cancel_hotkey()
+            pending_hotkeys_closed = self._stop_pending_hotkeys()
             microphone_closed = self._close_stream()
         with self._lock:
             self.audio_chunks = []
-        if hotkey_error or not microphone_closed:
-            message = str(hotkey_error or self._last_stream_error or "Microphone did not close")
+        if hotkey_error or not cancel_hotkey_closed or not pending_hotkeys_closed or not microphone_closed:
+            message = str(
+                hotkey_error
+                or ("Escape cancel hotkey did not unregister" if not cancel_hotkey_closed else None)
+                or ("A shortcut probe did not unregister" if not pending_hotkeys_closed else None)
+                or self._last_stream_error
+                or "Microphone did not close"
+            )
             self._set_state(State.ERROR, message)
             self.feedback.error(message)
             return
@@ -131,6 +142,8 @@ class ListenerV2:
             self.hotkey.stop()
         except Exception as exc:
             self.feedback.error(str(exc))
+        cancel_hotkey_closed = self._stop_cancel_hotkey()
+        pending_hotkeys_closed = self._stop_pending_hotkeys()
         microphone_closed = self._close_stream()
         with self._lock:
             self.audio_chunks = []
@@ -141,6 +154,10 @@ class ListenerV2:
         self._controller_thread = None
         if not microphone_closed and self._last_stream_error:
             self.feedback.error(str(self._last_stream_error))
+        if not cancel_hotkey_closed:
+            self.feedback.error("Escape cancel hotkey did not unregister")
+        if not pending_hotkeys_closed:
+            self.feedback.error("A shortcut probe did not unregister")
         self._set_state(State.STOPPED)
 
     def toggle_paused(self) -> None:
@@ -159,6 +176,11 @@ class ListenerV2:
             if self._running:
                 self._commands.put(("release", self._hotkey_epoch))
 
+    def _on_cancel_press(self) -> None:
+        with self._lock:
+            if self._running:
+                self._commands.put(("cancel", self._generation))
+
     def _controller_loop(self) -> None:
         """Serialize input transitions so a quick release cannot overtake press."""
         while True:
@@ -170,12 +192,21 @@ class ListenerV2:
                 with self._lock:
                     if token != self._hotkey_epoch:
                         continue
-                if kind == "press":
+                mode = self.config.get("behavior.recording_mode", "hold")
+                if mode == "toggle":
+                    if kind == "press":
+                        if self.state == State.RECORDING:
+                            self._stop_recording()
+                        else:
+                            self._start_recording()
+                elif kind == "press":
                     self._start_recording()
                 else:
                     self._stop_recording()
             elif kind == "timeout":
                 self._stop_recording(expected_generation=token)
+            elif kind == "cancel":
+                self._cancel_recording(expected_generation=token)
 
     def _start_recording(self) -> None:
         stream = None
@@ -193,15 +224,21 @@ class ListenerV2:
             self.feedback.recording_start()
             self.on_state(State.RECORDING, None)
             try:
+                selection = self.config.get("audio.device")
+                capture_rate = capture_sample_rate(
+                    selection,
+                    self.config.get("audio.sample_rate"),
+                )
                 stream = sd.InputStream(
                     channels=self.config.get("audio.channels"),
-                    samplerate=self.config.get("audio.sample_rate"),
-                    device=self.config.get("audio.device"),
+                    samplerate=capture_rate,
+                    device=resolve_input_device(selection),
                     dtype="float32",
                     callback=self._audio_callback,
                 )
                 stream.start()
                 self.stream = stream
+                self.capture_sample_rate = capture_rate
             except Exception as exc:
                 if stream is not None:
                     self.stream = stream
@@ -213,6 +250,8 @@ class ListenerV2:
                 self.on_state(State.ERROR, detail)
                 self.feedback.error(detail)
                 return
+
+        self._start_cancel_hotkey(generation)
 
         self._spawn_worker(
             lambda: self._recording_timeout(generation),
@@ -228,8 +267,19 @@ class ListenerV2:
             generation = self._generation
             duration = time.monotonic() - self.start_time
             target_window = self.target_window
+            capture_rate = getattr(self, "capture_sample_rate", self.config.get("audio.sample_rate"))
             self.state = State.TRANSCRIBING
 
+        if not self._stop_cancel_hotkey():
+            self._close_stream()
+            with self._lock:
+                self._generation += 1
+                self.state = State.ERROR
+                self.audio_chunks = []
+            message = "Escape cancel hotkey did not unregister"
+            self.feedback.error(message)
+            self.on_state(State.ERROR, message)
+            return
         if not self._close_stream():
             message = str(self._last_stream_error or "Microphone did not close")
             with self._lock:
@@ -250,11 +300,36 @@ class ListenerV2:
             self.feedback.recording_stop()
             self.on_state(State.TRANSCRIBING, None)
         self._spawn_worker(
-            lambda: self._finish_recording(generation, duration, chunks, target_window),
+            lambda: self._finish_recording(generation, duration, chunks, target_window, capture_rate),
             "SolomonVoiceTranscriber",
         )
 
-    def _finish_recording(self, generation, duration, chunks, target_window) -> None:
+    def _cancel_recording(self, expected_generation=None) -> None:
+        """Discard the active capture without running Whisper or inserting text."""
+        with self._lock:
+            if self.state != State.RECORDING:
+                return
+            if expected_generation is not None and self._generation != expected_generation:
+                return
+            self._generation += 1
+            self.state = State.IDLE
+            self.audio_chunks = []
+        if not self._stop_cancel_hotkey():
+            self._close_stream()
+            message = "Escape cancel hotkey did not unregister"
+            self._set_state(State.ERROR, message)
+            self.feedback.error(message)
+            return
+        if not self._close_stream():
+            message = str(self._last_stream_error or "Microphone did not close")
+            self._set_state(State.ERROR, message)
+            self.feedback.error(message)
+            return
+        self.feedback.recording_canceled()
+        self.on_level(0.0)
+        self.on_state(State.IDLE, "Recording canceled")
+
+    def _finish_recording(self, generation, duration, chunks, target_window, capture_rate=None) -> None:
         error_notified = False
         try:
             if not self._generation_is_current(generation):
@@ -264,6 +339,9 @@ class ListenerV2:
             if not chunks:
                 raise RuntimeError("No audio was captured")
             audio = np.concatenate(chunks, axis=0).reshape(-1)
+            target_rate = self.config.get("audio.sample_rate")
+            if capture_rate and int(capture_rate) != int(target_rate):
+                audio = self._resample_audio(audio, int(capture_rate), int(target_rate))
             rms = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
             if rms < self.config.get("audio.silence_rms", 0.003):
                 raise RuntimeError("No speech detected")
@@ -309,6 +387,15 @@ class ListenerV2:
         if self._running:
             self._commands.put(("timeout", generation))
 
+    @staticmethod
+    def _resample_audio(audio, source_rate, target_rate):
+        if not len(audio) or source_rate == target_rate:
+            return audio
+        output_length = max(1, round(len(audio) * target_rate / source_rate))
+        source_positions = np.linspace(0.0, 1.0, num=len(audio), endpoint=False)
+        target_positions = np.linspace(0.0, 1.0, num=output_length, endpoint=False)
+        return np.interp(target_positions, source_positions, audio).astype(np.float32)
+
     def _audio_callback(self, indata, _frames, _time_info, status) -> None:
         if self.state != State.RECORDING:
             return
@@ -352,6 +439,87 @@ class ListenerV2:
             if self.stream is stream:
                 self.stream = None
         return True
+
+    def _start_cancel_hotkey(self, generation) -> None:
+        if not self.config.get("behavior.escape_to_cancel", True):
+            return
+        candidate = NativeHotkey("escape", [], self._on_cancel_press, lambda: None)
+        try:
+            candidate.start()
+        except Exception as exc:
+            # Dictation remains usable if another app temporarily owns Escape.
+            self.feedback.error(f"Escape-to-cancel is unavailable: {exc}")
+            return
+        with self._lock:
+            valid = (
+                self._running
+                and self.state == State.RECORDING
+                and self._generation == generation
+                and self.cancel_hotkey is None
+            )
+            if valid:
+                self.cancel_hotkey = candidate
+        if not valid:
+            try:
+                candidate.stop()
+            except Exception as exc:
+                self.feedback.error(f"Escape cancel cleanup failed: {exc}")
+
+    def _stop_cancel_hotkey(self) -> bool:
+        with self._lock:
+            cancel_hotkey = self.cancel_hotkey
+        if cancel_hotkey is None:
+            return True
+        try:
+            cancel_hotkey.stop()
+        except Exception as exc:
+            self.feedback.error(str(exc))
+            return False
+        with self._lock:
+            if self.cancel_hotkey is cancel_hotkey:
+                self.cancel_hotkey = None
+        return True
+
+    def _stop_pending_hotkeys(self) -> bool:
+        """Retry teardown of any shortcut probe whose release was unconfirmed."""
+        with self._lock:
+            pending = list(self._pending_hotkeys)
+        failed = []
+        for hotkey in pending:
+            try:
+                hotkey.stop()
+            except Exception as exc:
+                failed.append(hotkey)
+                self.feedback.error(str(exc))
+        with self._lock:
+            self._pending_hotkeys = failed
+        return not failed
+
+    def configure_shortcut(self, key, modifiers) -> None:
+        """Validate and stage a new shortcut while the listener is paused.
+
+        The candidate is registered and unregistered once before it replaces the
+        old object. A conflict therefore leaves the previous shortcut intact.
+        """
+        with self._lock:
+            if self.state != State.PAUSED:
+                raise RuntimeError("Pause SolomonVoice before changing the shortcut")
+        candidate = NativeHotkey(
+            key,
+            list(modifiers),
+            self._on_hotkey_press,
+            self._on_hotkey_release,
+        )
+        candidate.start()
+        try:
+            candidate.stop()
+        except Exception as exc:
+            with self._lock:
+                self._pending_hotkeys.append(candidate)
+            self._set_state(State.ERROR, f"Could not release shortcut probe: {exc}")
+            raise
+        with self._lock:
+            self.hotkey = candidate
 
     def _warm_model(self) -> None:
         try:
