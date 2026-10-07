@@ -71,8 +71,11 @@ def test_dictation_and_read_aloud_shortcuts_must_be_distinct(tmp_path):
 
 
 def test_read_aloud_speed_is_bounded(tmp_path):
+    config = Config(write_config(tmp_path, {"read_aloud": {"speed": 5.0}}))
+    assert config.get("read_aloud.speed") == 5.0
+
     with pytest.raises(ValueError, match="speed"):
-        Config(write_config(tmp_path, {"read_aloud": {"speed": 2.5}}))
+        Config(write_config(tmp_path, {"read_aloud": {"speed": 5.1}}))
 
 
 def test_user_settings_override_defaults_and_save_atomically(tmp_path):

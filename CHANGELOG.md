@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.2
+
+- Extended offline Read Aloud and voice previews from 2× up to 5× speed.
+- High-speed playback combines Kokoro's native phoneme timing with local waveform-similarity compression, preserving pitch and articulation instead of skipping audio.
+
 ## 2.3.1
 
 - Added an audible **Preview voice** / **Stop preview** control in Settings that uses the selected local voice and reading speed.

@@ -21,7 +21,7 @@ SolomonVoice does use clearly declared open-source runtime libraries, including 
 - When nothing is highlighted, SolomonVoice can read the active document or webpage when Windows exposes it through the accessibility API.
 - No clipboard copy is performed. Captured text and generated audio stay in memory.
 - Pausing or exiting SolomonVoice stops playback and unregisters both global shortcuts.
-- Choose among 54 local voices and set reading speed from 0.5× to 2.0× in Settings.
+- Choose among 54 local voices and set reading speed from 0.5× to 5.0× in Settings.
 
 ## What changed in v2
 
@@ -104,7 +104,7 @@ Open **Settings…** from the tray menu. SolomonVoice temporarily pauses listeni
 - Choose **Windows default** or a named microphone. Named devices are saved by device name and Windows audio host rather than a fragile numeric index.
 - Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.
 - Choose a Kokoro precision, voice, reading speed, and model folder. **Install voice model** downloads the selected ONNX graph and the shared 54-voice pack.
-- Select a voice and click **Preview voice** to hear an offline sample at the current speed; click **Stop preview** to end it immediately.
+- Select a voice and click **Preview voice** to hear an offline sample at the current speed; click **Stop preview** to end it immediately. Advanced speeds combine Kokoro's native phoneme timing with local pitch-preserving speech compression to retain articulation without skipping words.
 - Configure **Ctrl+Shift+Space** independently from the dictation shortcut and choose whether no-selection requests may fall back to the full active document.
 - Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
 - Choose hold-to-talk or press-once toggle mode. In either mode, **Escape** can discard the current recording without transcribing it.

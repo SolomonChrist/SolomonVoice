@@ -27,6 +27,8 @@ from whisper_models import (
 )
 from tts_models import (
     DEFAULT_TTS_MODEL,
+    MAX_READ_SPEED,
+    MIN_READ_SPEED,
     TTS_MODELS,
     VOICE_BY_ID,
     VOICE_BY_LABEL,
@@ -479,7 +481,9 @@ class SettingsWindow:
         )
 
         ttk.Label(card, text="Voice", style="Muted.TLabel").grid(row=8, column=0, columnspan=3, sticky="w")
-        ttk.Label(card, text="Reading speed", style="Muted.TLabel").grid(row=8, column=3, columnspan=3, sticky="w")
+        ttk.Label(card, text="Reading speed · clear pitch-preserving playback", style="Muted.TLabel").grid(
+            row=8, column=3, columnspan=3, sticky="w"
+        )
         current_voice = self.config.get("read_aloud.voice", "af_heart")
         voice_label = VOICE_BY_ID.get(current_voice, VOICE_BY_ID["af_heart"])[0]
         self.voice_var = tk.StringVar(value=voice_label)
@@ -501,7 +505,7 @@ class SettingsWindow:
         speed_row = tk.Frame(card, bg=SURFACE)
         speed_row.grid(row=9, column=3, columnspan=3, sticky="ew", pady=(4, 0))
         self.speed_scale = tk.Scale(
-            speed_row, from_=0.5, to=2.0, resolution=0.05, orient="horizontal",
+            speed_row, from_=MIN_READ_SPEED, to=MAX_READ_SPEED, resolution=0.1, orient="horizontal",
             variable=self.speed_var, showvalue=False, bg=SURFACE, fg=TEXT,
             troughcolor=INPUT, activebackground=TEAL, highlightthickness=0,
             bd=0, sliderrelief="flat", sliderlength=16,

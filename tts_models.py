@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 DEFAULT_TTS_MODEL = "kokoro-v1.0-fp16"
+MIN_READ_SPEED = 0.5
+MAX_READ_SPEED = 5.0
 VOICE_PACK_FILE = "voices-v1.0.bin"
 RELEASE_ROOT = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1"
 
@@ -119,8 +121,10 @@ def validate_voice(voice: str) -> str:
 
 def validate_speed(speed) -> float:
     value = float(speed)
-    if not 0.5 <= value <= 2.0:
-        raise ValueError("read_aloud.speed must be between 0.5 and 2.0")
+    if not MIN_READ_SPEED <= value <= MAX_READ_SPEED:
+        raise ValueError(
+            f"read_aloud.speed must be between {MIN_READ_SPEED} and {MAX_READ_SPEED}"
+        )
     return value
 
 
