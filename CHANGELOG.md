@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.1
+
+- Added an audible **Preview voice** / **Stop preview** control in Settings that uses the selected local voice and reading speed.
+- Voice previews stop safely when Settings is applied, canceled, closed, or the app exits.
+
 ## 2.3.0
 
 - Added completely offline Read Aloud using Apache-2.0 Kokoro-82M weights through the MIT `kokoro-onnx` runtime.

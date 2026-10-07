@@ -3,7 +3,7 @@ cd /d "%~dp0"
 
 echo.
 echo ========================================
-echo Starting SolomonVoice v2.3.0
+echo Starting SolomonVoice v2.3.1
 echo ========================================
 echo.
 echo This is an offline voice-to-text and text-to-voice tool.

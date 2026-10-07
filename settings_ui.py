@@ -37,6 +37,7 @@ from tts_models import (
     resolve_tts_directory,
     voices_file,
 )
+from tts_reader import TTSReader
 
 
 SUPPORTED_KEYS = (
@@ -77,6 +78,10 @@ class SettingsWindow:
         self._capture_binding = None
         self._capture_target = "dictation"
         self._model_installing = False
+        self._voice_preview_reader = None
+        self._voice_preview_cancel = None
+        self._voice_previewing = False
+        self._voice_preview_generation = 0
         self._meter_after_id = None
         self.status_var = tk.StringVar(master=parent, value="Changes are saved only on this Windows account.")
 
@@ -486,7 +491,12 @@ class SettingsWindow:
             width=30,
             style="SV.TCombobox",
         )
-        self.voice_combo.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(4, 0), padx=(0, 10))
+        self.voice_combo.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 0), padx=(0, 8))
+        self.voice_combo.bind("<<ComboboxSelected>>", self._voice_selection_changed)
+        self.preview_voice_button = ttk.Button(
+            card, text="Preview voice", command=self.toggle_voice_preview, style="SV.TButton"
+        )
+        self.preview_voice_button.grid(row=9, column=2, sticky="ew", pady=(4, 0), padx=(0, 10))
         self.speed_var = tk.DoubleVar(value=self.config.get("read_aloud.speed", 1.0))
         speed_row = tk.Frame(card, bg=SURFACE)
         speed_row.grid(row=9, column=3, columnspan=3, sticky="ew", pady=(4, 0))
@@ -537,6 +547,88 @@ class SettingsWindow:
         card.columnconfigure(4, weight=1)
         self._update_tts_model_status()
 
+    def _voice_selection_changed(self, _event=None):
+        if self._voice_previewing:
+            self._stop_voice_preview()
+        self.status_var.set(f"Selected {self.voice_var.get()}. Click Preview voice to hear it.")
+
+    def toggle_voice_preview(self):
+        if self._voice_previewing:
+            self._stop_voice_preview()
+            self.status_var.set("Voice preview stopped.")
+            return
+        name = self.tts_model_var.get()
+        directory = self._selected_tts_directory()
+        if not tts_model_is_installed(name, directory):
+            messagebox.showinfo(
+                "Install voice model",
+                "Install the selected voice model before previewing a voice.",
+                parent=self.window,
+            )
+            return
+        voice_label = self.voice_var.get()
+        voice_id = VOICE_BY_LABEL[voice_label][0]
+        self._voice_preview_generation += 1
+        generation = self._voice_preview_generation
+        reader = TTSReader(
+            name,
+            str(directory),
+            voice_id,
+            float(self.speed_var.get()),
+            self.config.get("read_aloud.output_device"),
+        )
+        cancel = threading.Event()
+        self._voice_preview_reader = reader
+        self._voice_preview_cancel = cancel
+        self._voice_previewing = True
+        self.preview_voice_button.configure(text="Stop preview")
+        self.status_var.set(f"Previewing {voice_label} at {self.speed_var.get():.2g}×…")
+
+        sample = (
+            "Hello. This is SolomonVoice reading completely offline. "
+            "Choose the voice and speed that feel most comfortable to you."
+        )
+
+        def worker():
+            try:
+                reader.speak(sample, cancel)
+                error = None
+            except Exception as exc:
+                error = exc
+            try:
+                self.window.after(0, lambda: self._finish_voice_preview(generation, voice_label, error))
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, name="SolomonVoiceVoicePreview", daemon=True).start()
+
+    def _finish_voice_preview(self, generation, voice_label, error):
+        if self._closed or generation != self._voice_preview_generation:
+            return
+        self._voice_preview_reader = None
+        self._voice_preview_cancel = None
+        self._voice_previewing = False
+        self.preview_voice_button.configure(text="Preview voice")
+        if error:
+            self.status_var.set("Voice preview failed.")
+            messagebox.showerror("Voice preview failed", str(error), parent=self.window)
+        else:
+            self.status_var.set(f"Finished previewing {voice_label}.")
+
+    def _stop_voice_preview(self):
+        self._voice_preview_generation += 1
+        reader = self._voice_preview_reader
+        cancel = self._voice_preview_cancel
+        self._voice_preview_reader = None
+        self._voice_preview_cancel = None
+        self._voice_previewing = False
+        if cancel is not None:
+            cancel.set()
+        if reader is not None:
+            reader.stop()
+        if hasattr(self, "preview_voice_button"):
+            self.preview_voice_button.configure(text="Preview voice")
+
     def _selected_tts_directory(self):
         return resolve_tts_directory(self.tts_model_dir_var.get().strip() or None)
 
@@ -568,6 +660,10 @@ class SettingsWindow:
             self.install_tts_button.configure(
                 state="disabled" if installed or self._model_installing else "normal",
                 text="Installed" if installed else ("Installing…" if self._model_installing else "Install voice model"),
+            )
+        if hasattr(self, "preview_voice_button"):
+            self.preview_voice_button.configure(
+                state="normal" if installed and not self._model_installing else "disabled"
             )
 
     def install_selected_tts_model(self):
@@ -964,6 +1060,7 @@ class SettingsWindow:
                 parent=self.window,
             )
             return
+        self._stop_voice_preview()
         if not self._stop_microphone_test():
             messagebox.showerror(
                 "Microphone still in use",
@@ -1099,6 +1196,7 @@ class SettingsWindow:
                 parent=self.window,
             )
             return
+        self._stop_voice_preview()
         if not self._stop_microphone_test():
             messagebox.showerror(
                 "Microphone still in use",
@@ -1114,6 +1212,7 @@ class SettingsWindow:
         if self._closed:
             return
         try:
+            self._stop_voice_preview()
             self._stop_microphone_test()
         except Exception:
             pass
