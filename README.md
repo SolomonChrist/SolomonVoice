@@ -99,7 +99,7 @@ Double-clicking the tray icon toggles Pause/Resume.
 
 ## Settings
 
-Open **Settings…** from the tray menu. SolomonVoice temporarily pauses listening while the window is open so shortcut capture and microphone testing cannot interfere with other applications.
+Open **Settings…** from the tray menu. SolomonVoice temporarily pauses both global shortcuts while the window is open. Use **Apply & resume** or **Cancel & resume** before testing a shortcut in another application.
 
 - Choose **Windows default** or a named microphone. Named devices are saved by device name and Windows audio host rather than a fragile numeric index.
 - Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.

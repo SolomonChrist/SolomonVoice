@@ -221,12 +221,12 @@ class SettingsWindow:
         ttk.Label(heading, text="SOLOMON VOICE  •  OFFLINE", style="Header.TLabel").pack(anchor="w")
         ttk.Label(heading, text="Settings", style="Title.TLabel").pack(anchor="w", pady=(1, 0))
         tk.Label(
-            header, text="●  LISTENING PAUSED", bg=SURFACE, fg=TEAL,
+            header, text="●  SHORTCUTS PAUSED", bg=SURFACE, fg=TEAL,
             font=("Segoe UI Semibold", 8), padx=12, pady=7,
         ).pack(side="right", anchor="n", pady=(7, 0))
         ttk.Label(
             shell,
-            text="Choose how SolomonVoice listens, responds, and appears. Your keyboard is fully released while this window is open.",
+            text="Dictation and Read Aloud shortcuts are disabled while Settings is open. Close this window to resume them.",
             style="SV.TLabel",
         ).pack(anchor="w", pady=(0, 16))
 
@@ -237,9 +237,11 @@ class SettingsWindow:
         ttk.Label(footer, textvariable=self.status_var, style="SV.TLabel").pack(anchor="w", pady=(0, 9))
         buttons = ttk.Frame(footer, style="SV.TFrame")
         buttons.pack(fill="x")
-        self.cancel_button = ttk.Button(buttons, text="Cancel", command=self.close, style="SV.TButton")
+        cancel_text = "Cancel" if self.was_paused else "Cancel & resume"
+        apply_text = "Apply changes" if self.was_paused else "Apply & resume"
+        self.cancel_button = ttk.Button(buttons, text=cancel_text, command=self.close, style="SV.TButton")
         self.cancel_button.pack(side="right")
-        self.apply_button = ttk.Button(buttons, text="Apply changes", command=self.apply, style="Accent.TButton")
+        self.apply_button = ttk.Button(buttons, text=apply_text, command=self.apply, style="Accent.TButton")
         self.apply_button.pack(side="right", padx=(0, 10))
         self.defaults_button = ttk.Button(buttons, text="Restore defaults", command=self.restore_defaults, style="SV.TButton")
         self.defaults_button.pack(side="left")

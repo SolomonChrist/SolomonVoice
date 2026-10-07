@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.3
+
+- Fixed Read Aloud appearing unresponsive when Settings remained open by explicitly labeling both shortcuts as paused and making the close actions say **Apply & resume** / **Cancel & resume**.
+- Initialized Windows UI Automation on every Read Aloud worker and now searches parent text controls, improving highlighted-text capture in browsers and nested editors.
+
 ## 2.3.2
 
 - Extended offline Read Aloud and voice previews from 2× up to 5× speed.
