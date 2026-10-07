@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.5
+
+- Added a visible speaker/headset selector and one-click playback test to Read Aloud settings.
+- Voice previews and normal Read Aloud now resolve the saved output by stable device name and Windows audio host instead of persisting a fragile numeric index.
+- Disconnected or ambiguous speaker selections fail visibly instead of silently sending audio to another endpoint.
+
 ## 2.3.4
 
 - Added explicit audible and visual acknowledgement when the Read Aloud shortcut is received.

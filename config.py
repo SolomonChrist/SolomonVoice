@@ -224,6 +224,12 @@ class Config:
         if isinstance(device, dict) and not device.get("name"):
             raise ValueError("audio.device identity must include a name")
 
+        output_device = config["read_aloud"].get("output_device")
+        if output_device is not None and not isinstance(output_device, (int, str, dict)):
+            raise ValueError("read_aloud.output_device must be null, a device index, name, or identity object")
+        if isinstance(output_device, dict) and not output_device.get("name"):
+            raise ValueError("read_aloud.output_device identity must include a name")
+
         if config["behavior"]["recording_mode"] not in {"hold", "toggle"}:
             raise ValueError("behavior.recording_mode must be 'hold' or 'toggle'")
 

@@ -78,6 +78,11 @@ def test_read_aloud_speed_is_bounded(tmp_path):
         Config(write_config(tmp_path, {"read_aloud": {"speed": 5.1}}))
 
 
+def test_read_aloud_output_identity_requires_a_name(tmp_path):
+    with pytest.raises(ValueError, match="output_device identity must include a name"):
+        Config(write_config(tmp_path, {"read_aloud": {"output_device": {"hostapi": "WASAPI"}}}))
+
+
 def test_user_settings_override_defaults_and_save_atomically(tmp_path):
     base = write_config(tmp_path, {"audio": {"device": None}})
     user = tmp_path / "profile" / "settings.json"

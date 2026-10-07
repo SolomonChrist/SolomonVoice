@@ -1,11 +1,24 @@
 import pytest
 
-from audio_devices import Microphone, capture_sample_rate, resolve_input_device, selected_microphone
+from audio_devices import (
+    Microphone,
+    Speaker,
+    capture_sample_rate,
+    resolve_input_device,
+    resolve_output_device,
+    selected_microphone,
+    selected_speaker,
+)
 
 
 MICROPHONES = [
     Microphone(2, "Laptop Array", "WASAPI", 2, 48000, True),
     Microphone(7, "USB Podcast Mic", "WASAPI", 1, 48000, False),
+]
+
+SPEAKERS = [
+    Speaker(4, "Desk Speakers", "MME", 2, 48000, True),
+    Speaker(14, "Bluetooth Headphones", "WASAPI", 2, 48000, False),
 ]
 
 
@@ -76,3 +89,17 @@ def test_capture_rate_uses_whisper_rate_if_native_is_unavailable():
     )
 
     assert rate == 16000
+
+
+def test_stable_output_identity_resolves_after_device_index_changes():
+    selection = {"name": "Bluetooth Headphones", "hostapi": "WASAPI"}
+    assert resolve_output_device(selection, SPEAKERS) == 14
+
+
+def test_none_selects_current_default_speaker_for_display():
+    assert selected_speaker(None, SPEAKERS).name == "Desk Speakers"
+
+
+def test_missing_saved_speaker_fails_closed():
+    with pytest.raises(RuntimeError, match="not connected"):
+        resolve_output_device({"name": "Old Monitor", "hostapi": "WASAPI"}, SPEAKERS)

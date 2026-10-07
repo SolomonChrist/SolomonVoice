@@ -21,7 +21,7 @@ SolomonVoice does use clearly declared open-source runtime libraries, including 
 - When nothing is highlighted, SolomonVoice can read the active document or webpage when Windows exposes it through the accessibility API.
 - Selection capture prefers Windows UI Automation. For applications that do not expose highlighted ranges, SolomonVoice briefly uses Copy and restores every safely clonable original clipboard format. If a format cannot be preserved, the fallback stops before changing the clipboard. Captured text and generated audio remain in memory.
 - Pausing or exiting SolomonVoice stops playback and unregisters both global shortcuts.
-- Choose among 54 local voices and set reading speed from 0.5× to 5.0× in Settings.
+- Choose among 54 local voices, set reading speed from 0.5× to 5.0×, and route speech to a specific speaker or headset in Settings.
 
 ## What changed in v2
 
@@ -88,7 +88,7 @@ To read text aloud:
 
 Right-click the tray microphone for:
 
-- **Settings…** — manage Whisper and Kokoro model folders, select a voice and speed, choose a microphone, and configure both shortcuts without editing JSON.
+- **Settings…** — manage Whisper and Kokoro model folders, select a voice, speed, microphone, and speaker output, and configure both shortcuts without editing JSON.
 - **Session history…** — inspect the latest 20 attempts, rerun the most recent in-memory audio without typing it, or explicitly copy a transcript. History disappears when SolomonVoice exits.
 - **Retry last into active app** — rerun the latest recording with the active model and type it into the currently focused text target.
 - **Pause listening** — immediately stops speech, unregisters Ctrl+Space and Ctrl+Shift+Space, and closes the microphone. Both shortcuts behave normally in every app.
@@ -105,6 +105,7 @@ Open **Settings…** from the tray menu. SolomonVoice temporarily pauses both gl
 - Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.
 - Choose a Kokoro precision, voice, reading speed, and model folder. **Install voice model** downloads the selected ONNX graph and the shared 54-voice pack.
 - Select a voice and click **Preview voice** to hear an offline sample at the current speed; click **Stop preview** to end it immediately. Advanced speeds combine Kokoro's native phoneme timing with local pitch-preserving speech compression to retain articulation without skipping words.
+- Choose **Windows default** or a named speaker/headset for Read Aloud. Use **Test speaker** for an immediate local playback check; voice previews and highlighted-text reading use that same selection.
 - The tray tooltip shows both active shortcuts. Privacy-safe operational diagnostics are written to `%LOCALAPPDATA%\SolomonVoice\runtime.log`; selected text and dictated text are never written there.
 - Configure **Ctrl+Shift+Space** independently from the dictation shortcut and choose whether no-selection requests may fall back to the full active document.
 - Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
@@ -170,6 +171,8 @@ The tray Settings window covers normal choices. `solomonvoice_config.json` remai
 Useful shortcut keys include `space`, letters or digits, `f1`–`f24`, `tab`, `escape`, `insert`, `delete`, `home`, `end`, and arrow keys. Modifiers may include `ctrl`, `alt`, `shift`, and `win`. Windows reserves some combinations, and SolomonVoice shows an error if another application already owns the selected chord.
 
 Set `audio.device` to `null` for the current Windows default microphone. The Settings window stores a stable device name and audio-host identity. Numeric indexes remain supported for older configurations but can change when USB or Bluetooth devices reconnect.
+
+Set `read_aloud.output_device` to `null` for the current Windows default speaker. Named outputs are also saved by device name and audio-host identity so ordinary index changes do not reroute speech silently.
 
 ### Choosing a model
 

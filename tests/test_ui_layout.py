@@ -48,6 +48,8 @@ def test_settings_actions_are_visible_inside_window():
         assert settings.install_tts_button.winfo_ismapped()
         assert settings.voice_combo.winfo_ismapped()
         assert settings.preview_voice_button.winfo_ismapped()
+        assert settings.output_combo.winfo_ismapped()
+        assert settings.test_output_button.winfo_ismapped()
         assert settings.tts_model_dir_entry.winfo_ismapped()
         assert settings.model_var.get() == "tiny"
         assert settings.tts_model_var.get() == "kokoro-v1.0-fp16"

@@ -54,6 +54,27 @@ def test_advanced_speed_uses_native_continuous_synthesis(monkeypatch):
     assert calls[0][1]["continuous"] is True
 
 
+def test_saved_speaker_identity_is_resolved_before_playback(monkeypatch):
+    played = []
+
+    class FakeModel:
+        def create(self, _text, **_kwargs):
+            return np.zeros(32, dtype=np.float32), 24000
+
+    class FinishedStream:
+        active = False
+
+    selection = {"name": "Desk Speakers", "hostapi": "WASAPI"}
+    reader = TTSReader("kokoro-v1.0-fp16", "models", output_device=selection)
+    monkeypatch.setattr(reader, "_load", lambda: FakeModel())
+    monkeypatch.setattr("tts_reader.resolve_output_device", lambda value: 12 if value == selection else None)
+    monkeypatch.setattr("tts_reader.sd.play", lambda *_args, **kwargs: played.append(kwargs["device"]))
+    monkeypatch.setattr("tts_reader.sd.get_stream", lambda: FinishedStream())
+
+    assert reader.speak("Test the selected output.") is True
+    assert played == [12]
+
+
 def test_time_compression_preserves_pitch_and_shortens_audio():
     sample_rate = 24000
     source = np.sin(2 * np.pi * 220 * np.arange(sample_rate) / sample_rate).astype(np.float32)

@@ -13,7 +13,14 @@ import numpy as np
 import sounddevice as sd
 from PIL import Image, ImageDraw, ImageTk
 
-from audio_devices import capture_sample_rate, input_microphones, selected_microphone
+from audio_devices import (
+    capture_sample_rate,
+    input_microphones,
+    output_speakers,
+    resolve_output_device,
+    selected_microphone,
+    selected_speaker,
+)
 from hotkey import modifier_mask, virtual_key
 from listener_v2 import State
 from startup import set_start_with_windows, starts_with_windows
@@ -518,13 +525,48 @@ class SettingsWindow:
         self.speed_var.trace_add("write", lambda *_args: self.speed_label.configure(text=f"{self.speed_var.get():.2g}×"))
         self.speed_label.configure(text=f"{self.speed_var.get():.2g}×")
 
+        ttk.Label(card, text="Speaker output", style="Muted.TLabel").grid(
+            row=10, column=0, columnspan=6, sticky="w", pady=(10, 4)
+        )
+        try:
+            self.speakers = output_speakers()
+            current_default = next((item for item in self.speakers if item.is_default), None)
+            default_name = current_default.name if current_default else "unavailable"
+            self.default_output_label = f"Windows default  —  {default_name}"
+            output_labels = [self.default_output_label] + [item.label for item in self.speakers]
+        except Exception as exc:
+            self.speakers = []
+            self.default_output_label = "Windows default"
+            output_labels = [self.default_output_label]
+            self.status_var.set(f"Speaker discovery failed: {exc}")
+        configured_output = self.config.get("read_aloud.output_device")
+        current_output = selected_speaker(configured_output, self.speakers)
+        selected_output_label = self.default_output_label if configured_output is None else (
+            current_output.label if current_output else self.default_output_label
+        )
+        self.output_var = tk.StringVar(value=selected_output_label)
+        self.output_combo = ttk.Combobox(
+            card,
+            textvariable=self.output_var,
+            values=output_labels,
+            state="readonly",
+            width=60,
+            style="SV.TCombobox",
+        )
+        self.output_combo.grid(row=11, column=0, columnspan=5, sticky="ew")
+        self.output_combo.bind("<<ComboboxSelected>>", self._output_selection_changed)
+        self.test_output_button = ttk.Button(
+            card, text="Test speaker", command=self.test_speaker, style="SV.TButton"
+        )
+        self.test_output_button.grid(row=11, column=5, sticky="e", padx=(10, 0))
+
         self.read_full_var = tk.BooleanVar(value=self.config.get("read_aloud.read_full_document", True))
         self._toggle_chip(card, "Read full document when nothing is highlighted", self.read_full_var).grid(
-            row=10, column=0, columnspan=6, sticky="ew", pady=(10, 8)
+            row=12, column=0, columnspan=6, sticky="ew", pady=(10, 8)
         )
 
         ttk.Label(card, text="Read Aloud shortcut", style="Muted.TLabel").grid(
-            row=11, column=0, columnspan=6, sticky="w", pady=(2, 5)
+            row=13, column=0, columnspan=6, sticky="w", pady=(2, 5)
         )
         shortcut = self.config.get("read_aloud.shortcut", {"key": "space", "modifiers": ["ctrl", "shift"]})
         configured = {item.lower() for item in shortcut["modifiers"]}
@@ -536,16 +578,16 @@ class SettingsWindow:
             ("Ctrl", self.read_ctrl_var), ("Alt", self.read_alt_var),
             ("Shift", self.read_shift_var), ("Win", self.read_win_var),
         )):
-            self._toggle_chip(card, text, variable).grid(row=12, column=column, sticky="w", padx=(0, 7))
+            self._toggle_chip(card, text, variable).grid(row=14, column=column, sticky="w", padx=(0, 7))
         self.read_key_var = tk.StringVar(value=shortcut["key"].lower())
         ttk.Combobox(
             card, textvariable=self.read_key_var, values=SUPPORTED_KEYS,
             state="readonly", width=12, style="SV.TCombobox",
-        ).grid(row=12, column=4, padx=(6, 10))
+        ).grid(row=14, column=4, padx=(6, 10))
         self.read_capture_button = ttk.Button(
             card, text="Record shortcut", command=lambda: self.begin_shortcut_capture("read"), style="SV.TButton"
         )
-        self.read_capture_button.grid(row=12, column=5, sticky="e")
+        self.read_capture_button.grid(row=14, column=5, sticky="e")
         card.columnconfigure(0, weight=1)
         card.columnconfigure(1, weight=1)
         card.columnconfigure(2, weight=1)
@@ -557,6 +599,41 @@ class SettingsWindow:
         if self._voice_previewing:
             self._stop_voice_preview()
         self.status_var.set(f"Selected {self.voice_var.get()}. Click Preview voice to hear it.")
+
+    def _selected_output_identity(self):
+        if self.output_var.get() == self.default_output_label:
+            return None
+        speaker = next((item for item in self.speakers if item.label == self.output_var.get()), None)
+        if speaker is None:
+            raise RuntimeError("Select an available speaker output")
+        return speaker.identity
+
+    def _output_selection_changed(self, _event=None):
+        if self._voice_previewing:
+            self._stop_voice_preview()
+        self.status_var.set("Speaker selected. Click Test speaker or Preview voice, then Apply & resume.")
+
+    def test_speaker(self):
+        """Play a short, unmistakable offline tone through the selected endpoint."""
+        try:
+            self._stop_voice_preview()
+            selection = self._selected_output_identity()
+            speaker = selected_speaker(selection, self.speakers)
+            if speaker is None:
+                raise RuntimeError("Windows did not return an available speaker output")
+            device = resolve_output_device(selection, self.speakers)
+            sample_rate = max(8000, int(speaker.sample_rate))
+            duration = 0.65
+            timeline = np.arange(int(sample_rate * duration), dtype=np.float32) / sample_rate
+            envelope = np.minimum(1.0, timeline * 16.0) * np.minimum(1.0, (duration - timeline) * 12.0)
+            tone = (0.20 * envelope * (
+                np.sin(2 * np.pi * 523.25 * timeline) + 0.55 * np.sin(2 * np.pi * 659.25 * timeline)
+            )).astype(np.float32)
+            sd.stop()
+            sd.play(tone, sample_rate, device=device, blocking=False)
+            self.status_var.set(f"Playing test through {speaker.name}.")
+        except Exception as exc:
+            messagebox.showerror("Speaker test", f"Could not play through that output.\n\n{exc}", parent=self.window)
 
     def toggle_voice_preview(self):
         if self._voice_previewing:
@@ -581,7 +658,7 @@ class SettingsWindow:
             str(directory),
             voice_id,
             float(self.speed_var.get()),
-            self.config.get("read_aloud.output_device"),
+            self._selected_output_identity(),
         )
         cancel = threading.Event()
         self._voice_preview_reader = reader
@@ -1102,6 +1179,7 @@ class SettingsWindow:
             candidate["read_aloud"]["voice"] = VOICE_BY_LABEL[self.voice_var.get()][0]
             candidate["read_aloud"]["speed"] = float(self.speed_var.get())
             candidate["read_aloud"]["read_full_document"] = bool(self.read_full_var.get())
+            candidate["read_aloud"]["output_device"] = self._selected_output_identity()
             candidate["audio"]["device"] = self._selected_identity()
             candidate["behavior"]["recording_mode"] = self.mode_var.get()
             candidate["behavior"]["escape_to_cancel"] = bool(self.escape_var.get())
@@ -1176,6 +1254,7 @@ class SettingsWindow:
         self.voice_var.set(VOICE_BY_ID[read_defaults.get("voice", "af_heart")][0])
         self.speed_var.set(read_defaults.get("speed", 1.0))
         self.read_full_var.set(read_defaults.get("read_full_document", True))
+        self.output_var.set(self.default_output_label)
         read_shortcut = read_defaults.get("shortcut", {"key": "space", "modifiers": ["ctrl", "shift"]})
         read_configured = {item.lower() for item in read_shortcut["modifiers"]}
         self.read_ctrl_var.set(bool(read_configured & {"ctrl", "control"}))

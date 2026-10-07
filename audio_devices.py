@@ -1,4 +1,4 @@
-"""Stable microphone discovery and selection helpers."""
+"""Stable Windows audio input and output discovery helpers."""
 
 from __future__ import annotations
 
@@ -9,6 +9,25 @@ import sounddevice as sd
 
 @dataclass(frozen=True)
 class Microphone:
+    index: int
+    name: str
+    hostapi: str
+    channels: int
+    sample_rate: int
+    is_default: bool = False
+
+    @property
+    def label(self) -> str:
+        default = "  •  Windows default" if self.is_default else ""
+        return f"{self.name}  —  {self.hostapi}  (device {self.index}){default}"
+
+    @property
+    def identity(self) -> dict:
+        return {"name": self.name, "hostapi": self.hostapi}
+
+
+@dataclass(frozen=True)
+class Speaker:
     index: int
     name: str
     hostapi: str
@@ -58,6 +77,38 @@ def input_microphones(sd_module=sd) -> list[Microphone]:
     return microphones
 
 
+def output_speakers(sd_module=sd) -> list[Speaker]:
+    """Return output-capable devices with stable names and host API labels."""
+    devices = sd_module.query_devices()
+    hostapis = sd_module.query_hostapis()
+    try:
+        default_index = int(sd_module.default.device[1])
+    except (TypeError, ValueError, IndexError):
+        default_index = -1
+
+    speakers = []
+    for index, device in enumerate(devices):
+        channels = int(device.get("max_output_channels", 0))
+        if channels <= 0:
+            continue
+        host_index = int(device.get("hostapi", -1))
+        if 0 <= host_index < len(hostapis):
+            host_name = str(hostapis[host_index].get("name", "Windows audio"))
+        else:
+            host_name = "Windows audio"
+        speakers.append(
+            Speaker(
+                index=index,
+                name=str(device.get("name", f"Output {index}")),
+                hostapi=host_name,
+                channels=channels,
+                sample_rate=int(float(device.get("default_samplerate", 44100))),
+                is_default=index == default_index,
+            )
+        )
+    return speakers
+
+
 def resolve_input_device(selection, microphones=None):
     """Resolve a persisted microphone identity to today's PortAudio index.
 
@@ -91,6 +142,37 @@ def resolve_input_device(selection, microphones=None):
             )
     raise RuntimeError(
         "The selected microphone is not connected. Choose another device in SolomonVoice Settings."
+    )
+
+
+def resolve_output_device(selection, speakers=None):
+    """Resolve a persisted speaker identity to today's PortAudio index."""
+    if selection is None:
+        return None
+    if isinstance(selection, int):
+        return selection
+    speakers = output_speakers() if speakers is None else speakers
+    if isinstance(selection, str):
+        for speaker in speakers:
+            if speaker.name == selection:
+                return speaker.index
+    elif isinstance(selection, dict):
+        name = selection.get("name")
+        hostapi = selection.get("hostapi")
+        matches = [
+            speaker
+            for speaker in speakers
+            if speaker.name == name and (not hostapi or speaker.hostapi == hostapi)
+        ]
+        if len(matches) == 1:
+            return matches[0].index
+        if len(matches) > 1:
+            raise RuntimeError(
+                "The saved speaker name is ambiguous because Windows exposes multiple identical endpoints. "
+                "Choose Windows default or a uniquely named device."
+            )
+    raise RuntimeError(
+        "The selected speaker is not connected. Choose another output in SolomonVoice Settings."
     )
 
 
@@ -136,3 +218,16 @@ def selected_microphone(selection, microphones):
     except RuntimeError:
         return None
     return next((item for item in microphones if item.index == index), None)
+
+
+def selected_speaker(selection, speakers):
+    """Return the selected speaker object, or the current Windows default."""
+    if not speakers:
+        return None
+    if selection is None:
+        return next((item for item in speakers if item.is_default), speakers[0])
+    try:
+        index = resolve_output_device(selection, speakers)
+    except RuntimeError:
+        return None
+    return next((item for item in speakers if item.index == index), None)

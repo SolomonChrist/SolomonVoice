@@ -8,6 +8,8 @@ import threading
 import numpy as np
 import sounddevice as sd
 
+from audio_devices import resolve_output_device
+
 from tts_models import VOICE_BY_ID, model_file, voices_file
 
 
@@ -161,6 +163,7 @@ class TTSReader:
         with self._lock:
             self._cancel.clear()
             kokoro = self._load()
+            output_device = resolve_output_device(self.output_device)
             chunks = chunk_text(text)
             language = VOICE_BY_ID[self.voice][1]
             # Kokoro's wrapper supports native articulation through 2x. Faster
@@ -183,7 +186,7 @@ class TTSReader:
                 audio = np.asarray(samples, dtype=np.float32)
                 if post_speed > 1.001:
                     audio = time_compress_speech(audio, post_speed, int(sample_rate))
-                sd.play(audio, int(sample_rate), device=self.output_device, blocking=False)
+                sd.play(audio, int(sample_rate), device=output_device, blocking=False)
                 while True:
                     if self._cancel.wait(0.05) or (external_cancel and external_cancel.is_set()):
                         sd.stop()
