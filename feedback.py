@@ -1,7 +1,11 @@
-"""Console and audio feedback for SolomonVoice."""
+"""Console, audio, and privacy-safe diagnostic feedback for SolomonVoice."""
 
-import winsound
+from datetime import datetime
+import os
+from pathlib import Path
 import sys
+import threading
+import winsound
 
 
 class Feedback:
@@ -16,6 +20,10 @@ class Feedback:
         """
         self.sound_enabled = sound_enabled
         self.console_enabled = console_enabled
+        self._log_lock = threading.Lock()
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        log_root = Path(local_app_data) / "SolomonVoice" if local_app_data else Path.home() / ".solomonvoice"
+        self.log_path = log_root / "runtime.log"
 
     def recording_start(self):
         """Signal that recording has started."""
@@ -41,6 +49,22 @@ class Feedback:
         self._beep(500, 70)
         self._print("Recording canceled")
 
+    def read_shortcut_received(self, state):
+        self._print(f"Read Aloud shortcut received while state={state}")
+
+    def reading_start(self):
+        self._beep(720, 80)
+        self._print("Read Aloud started; waiting for shortcut release")
+
+    def reading_captured(self, source, characters):
+        self._print(f"Read Aloud captured {characters} characters from {source}")
+
+    def reading_done(self):
+        self._print("Read Aloud finished")
+
+    def reading_stopped(self):
+        self._print("Read Aloud stopped")
+
     def error(self, message):
         """Signal an error.
 
@@ -65,13 +89,24 @@ class Feedback:
                 pass
 
     def _print(self, message):
-        """Print a message to console.
+        """Print and persist an event without recording dictated or selected text.
 
         Args:
             message: The message to print.
         """
         if self.console_enabled:
             print(f"[SolomonVoice] {message}", flush=True)
+        try:
+            with self._log_lock:
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+                if self.log_path.exists() and self.log_path.stat().st_size > 256 * 1024:
+                    previous = self.log_path.with_name("runtime.previous.log")
+                    os.replace(self.log_path, previous)
+                with open(self.log_path, "a", encoding="utf-8") as stream:
+                    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+                    stream.write(f"{timestamp}  {message}\n")
+        except OSError:
+            pass
 
     def startup(self, config_path, hotkey_display):
         """Print startup banner.
@@ -89,3 +124,4 @@ class Feedback:
             print("Ready. Hold hotkey to record.", flush=True)
             print("Use the tray menu to pause or exit.", flush=True)
             print("=" * 50, flush=True)
+        self._print(f"Started; dictation shortcut={hotkey_display}")

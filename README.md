@@ -19,7 +19,7 @@ SolomonVoice does use clearly declared open-source runtime libraries, including 
 - Highlight text in an application or browser and press **Ctrl+Shift+Space**.
 - Press **Ctrl+Shift+Space** again to stop immediately.
 - When nothing is highlighted, SolomonVoice can read the active document or webpage when Windows exposes it through the accessibility API.
-- No clipboard copy is performed. Captured text and generated audio stay in memory.
+- Selection capture prefers Windows UI Automation. For applications that do not expose highlighted ranges, SolomonVoice briefly uses Copy and restores every safely clonable original clipboard format. If a format cannot be preserved, the fallback stops before changing the clipboard. Captured text and generated audio remain in memory.
 - Pausing or exiting SolomonVoice stops playback and unregisters both global shortcuts.
 - Choose among 54 local voices and set reading speed from 0.5× to 5.0× in Settings.
 
@@ -105,6 +105,7 @@ Open **Settings…** from the tray menu. SolomonVoice temporarily pauses both gl
 - Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.
 - Choose a Kokoro precision, voice, reading speed, and model folder. **Install voice model** downloads the selected ONNX graph and the shared 54-voice pack.
 - Select a voice and click **Preview voice** to hear an offline sample at the current speed; click **Stop preview** to end it immediately. Advanced speeds combine Kokoro's native phoneme timing with local pitch-preserving speech compression to retain articulation without skipping words.
+- The tray tooltip shows both active shortcuts. Privacy-safe operational diagnostics are written to `%LOCALAPPDATA%\SolomonVoice\runtime.log`; selected text and dictated text are never written there.
 - Configure **Ctrl+Shift+Space** independently from the dictation shortcut and choose whether no-selection requests may fall back to the full active document.
 - Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
 - Choose hold-to-talk or press-once toggle mode. In either mode, **Escape** can discard the current recording without transcribing it.

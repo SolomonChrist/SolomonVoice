@@ -380,7 +380,7 @@ class DesktopUI:
             "recording": "Listening",
             "transcribing": "Transcribing locally",
             "reading": "Reading locally",
-            "error": "Dictation needs attention",
+            "error": "SolomonVoice needs attention",
         }.get(self.state, self.state.title())
         subtitle = self.detail or (
             f"Release {self.listener.hotkey_display()} to transcribe"
@@ -422,8 +422,9 @@ class DesktopUI:
 
     def _status_text(self) -> str:
         hotkey = self.listener.hotkey_display() if self.listener else ""
+        read_hotkey = self.listener.read_hotkey_display() if self.listener else ""
         labels = {
-            "ready": f"Ready · {hotkey}",
+            "ready": f"Ready · Dictate {hotkey} · Read {read_hotkey}",
             "recording": "Recording · release to stop",
             "transcribing": "Transcribing locally",
             "reading": "Reading aloud · press shortcut again to stop",

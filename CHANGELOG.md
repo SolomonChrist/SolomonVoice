@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.4
+
+- Added explicit audible and visual acknowledgement when the Read Aloud shortcut is received.
+- Text capture now waits for Ctrl+Shift+Space to be fully released before querying the focused application.
+- Added a privacy-safe rotating runtime log and a tray tooltip that shows both active shortcuts.
+- Added a selection-copy fallback for browsers and Electron applications that do not expose highlighted text through UI Automation; every safely clonable previous clipboard format is restored afterward.
+
 ## 2.3.3
 
 - Fixed Read Aloud appearing unresponsive when Settings remained open by explicitly labeling both shortcuts as paused and making the close actions say **Apply & resume** / **Cancel & resume**.

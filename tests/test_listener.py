@@ -44,6 +44,21 @@ class FakeConfig:
 
 
 class FakeFeedback:
+    def read_shortcut_received(self, _state):
+        pass
+
+    def reading_start(self):
+        pass
+
+    def reading_captured(self, _source, _characters):
+        pass
+
+    def reading_done(self):
+        pass
+
+    def reading_stopped(self):
+        pass
+
     def recording_start(self):
         pass
 
@@ -151,6 +166,25 @@ def test_read_hotkey_toggles_and_second_press_stops(monkeypatch):
     listener._stop_reading()
     assert listener.state == State.IDLE
     assert listener.reader.stop_calls == 1
+
+
+def test_reading_captures_the_exact_focused_target_before_worker_starts(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.IDLE
+    captured = []
+    listener.injector.capture_target = lambda: (71, 72, 73)
+    listener._spawn_worker = lambda target, _name: target()
+    monkeypatch.setattr(
+        listener_v2,
+        "capture_accessible_text",
+        lambda read_full, limit, target: captured.append((read_full, limit, target)) or ("Selected", "selection"),
+    )
+
+    listener._start_reading()
+
+    assert captured == [(True, 100000, (71, 72, 73))]
+    assert listener.state == State.IDLE
 
 
 def test_stop_invalidates_in_flight_transcription_and_prevents_late_insert(monkeypatch):

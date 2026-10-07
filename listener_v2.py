@@ -294,6 +294,7 @@ class ListenerV2:
 
     def _on_read_hotkey_press(self) -> None:
         with self._lock:
+            self.feedback.read_shortcut_received(self.state.value)
             if self._running:
                 self._commands.put(("read_toggle", self._hotkey_epoch))
 
@@ -342,17 +343,24 @@ class ListenerV2:
             generation = self._generation
             self._reading_cancel.clear()
             self.state = State.READING
+            target_window = self.injector.capture_target()
+        self.feedback.reading_start()
         self.on_state(State.READING, "Finding highlighted text…")
-        self._spawn_worker(lambda: self._read_text(generation), "SolomonVoiceReadAloud")
+        self._spawn_worker(lambda: self._read_text(generation, target_window), "SolomonVoiceReadAloud")
 
-    def _read_text(self, generation) -> None:
+    def _read_text(self, generation, target_window=None) -> None:
         try:
+            read_hotkey = self.read_hotkey
+            if read_hotkey and not read_hotkey.wait_until_released(timeout=2.0):
+                raise RuntimeError("Release the Read Aloud shortcut before text capture")
             text, source = capture_accessible_text(
                 self.config.get("read_aloud.read_full_document", True),
                 self.config.get("read_aloud.max_characters", 100000),
+                target_window,
             )
             if not self._reading_is_current(generation):
                 return
+            self.feedback.reading_captured(source, len(text))
             label = "highlighted text" if source == "selection" else "active document"
 
             def progress(index, total):
@@ -361,6 +369,7 @@ class ListenerV2:
 
             completed = self.reader.speak(text, self._reading_cancel, progress)
             if completed and self._reading_is_current(generation):
+                self.feedback.reading_done()
                 self._set_state(State.IDLE)
         except Exception as exc:
             if self._reading_is_current(generation):
@@ -385,6 +394,7 @@ class ListenerV2:
                 if return_to_idle and self._running:
                     self.state = State.IDLE
         if was_reading and return_to_idle and self._running:
+            self.feedback.reading_stopped()
             self.on_state(State.IDLE, "Read Aloud stopped")
 
     def _start_recording(self) -> None:
