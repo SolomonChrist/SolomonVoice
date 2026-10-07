@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from whisper_models import DEFAULT_MODEL, validate_model_name
+from tts_models import DEFAULT_TTS_MODEL, validate_speed, validate_tts_model, validate_voice
 
 
 DEFAULT_CONFIG = {
@@ -20,6 +21,20 @@ DEFAULT_CONFIG = {
         "model_directory": None,
         "language": None,
         "task": "transcribe",
+    },
+    "read_aloud": {
+        "enabled": True,
+        "shortcut": {
+            "key": "space",
+            "modifiers": ["ctrl", "shift"],
+        },
+        "model": DEFAULT_TTS_MODEL,
+        "model_directory": None,
+        "voice": "af_heart",
+        "speed": 1.0,
+        "read_full_document": True,
+        "max_characters": 100000,
+        "output_device": None,
     },
     "audio": {
         "sample_rate": 16000,
@@ -148,6 +163,8 @@ class Config:
         # Validate shortcut
         if not config["shortcut"]["key"]:
             raise ValueError("shortcut.key cannot be empty")
+        if not config["read_aloud"]["shortcut"]["key"]:
+            raise ValueError("read_aloud.shortcut.key cannot be empty")
 
         # Official model names and safe local Whisper-compatible .pt stems are
         # supported. Folder traversal is rejected independently of the folder.
@@ -157,6 +174,20 @@ class Config:
             not isinstance(model_directory, str) or not model_directory.strip()
         ):
             raise ValueError("whisper.model_directory must be null or a non-empty folder path")
+
+        config["read_aloud"]["model"] = validate_tts_model(config["read_aloud"]["model"])
+        config["read_aloud"]["voice"] = validate_voice(config["read_aloud"]["voice"])
+        config["read_aloud"]["speed"] = validate_speed(config["read_aloud"]["speed"])
+        tts_directory = config["read_aloud"].get("model_directory")
+        if tts_directory is not None and (
+            not isinstance(tts_directory, str) or not tts_directory.strip()
+        ):
+            raise ValueError("read_aloud.model_directory must be null or a non-empty folder path")
+        if not isinstance(config["read_aloud"].get("read_full_document"), bool):
+            raise ValueError("read_aloud.read_full_document must be true or false")
+        max_characters = config["read_aloud"].get("max_characters", 100000)
+        if not isinstance(max_characters, int) or not 1000 <= max_characters <= 1000000:
+            raise ValueError("read_aloud.max_characters must be between 1000 and 1000000")
 
         # Validate audio sample rate
         if config["audio"]["sample_rate"] <= 0:
@@ -170,6 +201,19 @@ class Config:
         invalid_modifiers = set(config["shortcut"]["modifiers"]) - valid_modifiers
         if invalid_modifiers:
             raise ValueError(f"Unsupported shortcut modifiers: {sorted(invalid_modifiers)}")
+        invalid_read_modifiers = set(config["read_aloud"]["shortcut"]["modifiers"]) - valid_modifiers
+        if invalid_read_modifiers:
+            raise ValueError(f"Unsupported read-aloud shortcut modifiers: {sorted(invalid_read_modifiers)}")
+        dictation_chord = (
+            config["shortcut"]["key"].lower(),
+            frozenset(item.lower() for item in config["shortcut"]["modifiers"]),
+        )
+        reading_chord = (
+            config["read_aloud"]["shortcut"]["key"].lower(),
+            frozenset(item.lower() for item in config["read_aloud"]["shortcut"]["modifiers"]),
+        )
+        if config["read_aloud"].get("enabled", True) and dictation_chord == reading_chord:
+            raise ValueError("Dictation and Read Aloud shortcuts must be different")
 
         if config["whisper"]["task"] not in {"transcribe", "translate"}:
             raise ValueError("whisper.task must be 'transcribe' or 'translate'")

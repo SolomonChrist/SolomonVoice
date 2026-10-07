@@ -16,6 +16,8 @@ from hotkey import NativeHotkey
 from injector import Injector
 from transcriber import Transcriber, UnsafeTranscriptionError
 from whisper_models import model_path
+from text_capture import capture_accessible_text
+from tts_reader import TTSReader
 
 
 class State(Enum):
@@ -23,6 +25,7 @@ class State(Enum):
     IDLE = "ready"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
+    READING = "reading"
     PAUSED = "paused"
     ERROR = "error"
     STOPPED = "stopped"
@@ -56,6 +59,7 @@ class ListenerV2:
         self._last_audio = None
         self._history = []
         self._history_sequence = 0
+        self._reading_cancel = threading.Event()
 
         self.transcriber = Transcriber(
             config.get("whisper.model"),
@@ -72,7 +76,24 @@ class ListenerV2:
             self._on_hotkey_press,
             self._on_hotkey_release,
         )
+        self.reader = TTSReader(
+            config.get("read_aloud.model"),
+            config.get("read_aloud.model_directory"),
+            config.get("read_aloud.voice", "af_heart"),
+            config.get("read_aloud.speed", 1.0),
+            config.get("read_aloud.output_device"),
+        )
+        self.read_hotkey = self._make_read_hotkey() if config.get("read_aloud.enabled", True) else None
         self.cancel_hotkey = None
+
+    def _make_read_hotkey(self):
+        shortcut = self.config.get("read_aloud.shortcut", {})
+        return NativeHotkey(
+            shortcut.get("key", "space"),
+            shortcut.get("modifiers", ["ctrl", "shift"]),
+            self._on_read_hotkey_press,
+            lambda: None,
+        )
 
     def start(self) -> None:
         with self._lock:
@@ -88,7 +109,18 @@ class ListenerV2:
             self._controller_thread.start()
         try:
             self.hotkey.start()
+            if self.read_hotkey:
+                self.read_hotkey.start()
         except Exception:
+            if self.read_hotkey:
+                try:
+                    self.read_hotkey.stop()
+                except Exception:
+                    pass
+            try:
+                self.hotkey.stop()
+            except Exception:
+                pass
             with self._lock:
                 self._running = False
             self._commands.put(None)
@@ -109,6 +141,12 @@ class ListenerV2:
         except Exception as exc:
             hotkey_error = exc
         finally:
+            if self.read_hotkey:
+                try:
+                    self.read_hotkey.stop()
+                except Exception as exc:
+                    hotkey_error = hotkey_error or exc
+            self._stop_reading(return_to_idle=False)
             cancel_hotkey_closed = self._stop_cancel_hotkey()
             pending_hotkeys_closed = self._stop_pending_hotkeys()
             microphone_closed = self._close_stream()
@@ -134,9 +172,20 @@ class ListenerV2:
             self._hotkey_epoch += 1
         try:
             self.hotkey.start()
+            if self.read_hotkey:
+                self.read_hotkey.start()
             self._set_state(State.IDLE)
             self._spawn_worker(self._warm_model, "SolomonVoiceModelLoader")
         except Exception as exc:
+            if self.read_hotkey:
+                try:
+                    self.read_hotkey.stop()
+                except Exception:
+                    pass
+            try:
+                self.hotkey.stop()
+            except Exception:
+                pass
             self._set_state(State.ERROR, str(exc))
             self.feedback.error(str(exc))
 
@@ -157,6 +206,36 @@ class ListenerV2:
             str(checkpoint.parent),
         )
 
+    def configure_read_aloud(self, settings) -> None:
+        """Stage the Read Aloud engine and probe its hotkey while paused."""
+        with self._lock:
+            if self.state != State.PAUSED:
+                raise RuntimeError("Pause SolomonVoice before changing Read Aloud")
+        candidate = None
+        if settings.get("enabled", True):
+            shortcut = settings["shortcut"]
+            candidate = NativeHotkey(
+                shortcut["key"],
+                list(shortcut["modifiers"]),
+                self._on_read_hotkey_press,
+                lambda: None,
+            )
+            candidate.start()
+            try:
+                candidate.stop()
+            except Exception:
+                with self._lock:
+                    self._pending_hotkeys.append(candidate)
+                raise
+        self.read_hotkey = candidate
+        self.reader = TTSReader(
+            settings["model"],
+            settings.get("model_directory"),
+            settings.get("voice", "af_heart"),
+            settings.get("speed", 1.0),
+            settings.get("output_device"),
+        )
+
     def stop(self) -> None:
         """Idempotently release every OS resource owned by the listener."""
         with self._lock:
@@ -168,6 +247,12 @@ class ListenerV2:
             self.hotkey.stop()
         except Exception as exc:
             self.feedback.error(str(exc))
+        if self.read_hotkey:
+            try:
+                self.read_hotkey.stop()
+            except Exception as exc:
+                self.feedback.error(str(exc))
+        self._stop_reading(return_to_idle=False)
         cancel_hotkey_closed = self._stop_cancel_hotkey()
         pending_hotkeys_closed = self._stop_pending_hotkeys()
         microphone_closed = self._close_stream()
@@ -207,6 +292,11 @@ class ListenerV2:
             if self._running:
                 self._commands.put(("cancel", self._generation))
 
+    def _on_read_hotkey_press(self) -> None:
+        with self._lock:
+            if self._running:
+                self._commands.put(("read_toggle", self._hotkey_epoch))
+
     def _controller_loop(self) -> None:
         """Serialize input transitions so a quick release cannot overtake press."""
         while True:
@@ -219,6 +309,8 @@ class ListenerV2:
                     if token != self._hotkey_epoch:
                         continue
                 mode = self.config.get("behavior.recording_mode", "hold")
+                if kind == "press" and self.state == State.READING:
+                    self._stop_reading()
                 if mode == "toggle":
                     if kind == "press":
                         if self.state == State.RECORDING:
@@ -233,6 +325,67 @@ class ListenerV2:
                 self._stop_recording(expected_generation=token)
             elif kind == "cancel":
                 self._cancel_recording(expected_generation=token)
+            elif kind == "read_toggle":
+                with self._lock:
+                    if token != self._hotkey_epoch:
+                        continue
+                if self.state == State.READING:
+                    self._stop_reading()
+                elif self.state == State.IDLE:
+                    self._start_reading()
+
+    def _start_reading(self) -> None:
+        with self._lock:
+            if not self._running or self.state != State.IDLE:
+                return
+            self._generation += 1
+            generation = self._generation
+            self._reading_cancel.clear()
+            self.state = State.READING
+        self.on_state(State.READING, "Finding highlighted text…")
+        self._spawn_worker(lambda: self._read_text(generation), "SolomonVoiceReadAloud")
+
+    def _read_text(self, generation) -> None:
+        try:
+            text, source = capture_accessible_text(
+                self.config.get("read_aloud.read_full_document", True),
+                self.config.get("read_aloud.max_characters", 100000),
+            )
+            if not self._reading_is_current(generation):
+                return
+            label = "highlighted text" if source == "selection" else "active document"
+
+            def progress(index, total):
+                if self._reading_is_current(generation):
+                    self.on_state(State.READING, f"Reading {label} · section {index} of {total}")
+
+            completed = self.reader.speak(text, self._reading_cancel, progress)
+            if completed and self._reading_is_current(generation):
+                self._set_state(State.IDLE)
+        except Exception as exc:
+            if self._reading_is_current(generation):
+                message = f"Read Aloud: {exc}"
+                self.feedback.error(message)
+                self.on_state(State.ERROR, message)
+                with self._lock:
+                    if self._generation == generation:
+                        self.state = State.IDLE
+
+    def _reading_is_current(self, generation) -> bool:
+        with self._lock:
+            return self._running and self._generation == generation and self.state == State.READING
+
+    def _stop_reading(self, return_to_idle=True) -> None:
+        self._reading_cancel.set()
+        self.reader.stop()
+        with self._lock:
+            was_reading = self.state == State.READING
+            if was_reading:
+                self._generation += 1
+                if return_to_idle and self._running:
+                    self.state = State.IDLE
+        if was_reading and return_to_idle and self._running:
+            self.on_state(State.IDLE, "Read Aloud stopped")
 
     def _start_recording(self) -> None:
         stream = None
@@ -687,3 +840,6 @@ class ListenerV2:
 
     def hotkey_display(self) -> str:
         return self.hotkey.display_name
+
+    def read_hotkey_display(self) -> str:
+        return self.read_hotkey.display_name if self.read_hotkey else "Disabled"

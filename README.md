@@ -1,8 +1,8 @@
 # SolomonVoice
 
-SolomonVoice is private push-to-talk dictation for Windows. Hold a global shortcut, speak, release it, and local OpenAI Whisper types the result at the active caret.
+SolomonVoice is private, two-way speech for Windows. Hold a global shortcut and local OpenAI Whisper types your speech at the active caret; highlight text and a second shortcut reads it aloud with local Kokoro voices.
 
-Version 2.2 adds visible local-model and storage management, private session history, and retry controls. It builds on the safer Windows-owned hotkey registration, direct Unicode input, stateful tray icon, non-activating voice meter, Pause/Resume, and real Exit behavior introduced in v2.
+Version 2.3 adds offline Read Aloud, 54 selectable voices, adjustable speed, selection/full-document accessibility capture, and first-time installation of both local AI models. It builds on the safer Windows-owned hotkey registration, direct Unicode input, stateful tray icon, non-activating voice meter, Pause/Resume, and real Exit behavior introduced in v2.
 
 > Experimental software. Review dictated text before sending or publishing it.
 
@@ -12,7 +12,16 @@ SolomonVoice is an independent product, not a clone or reskin of another dictati
 
 Product decisions should follow SolomonVoice's own priorities: offline privacy, explicit keyboard ownership, fast local dictation, visible system state, and clean Windows-native operation. New UI work should solve those requirements directly instead of recreating another product's screens or feature arrangement.
 
-SolomonVoice does use clearly declared open-source runtime libraries, including OpenAI Whisper for local speech recognition. Those dependencies provide underlying technical capabilities; they do not supply SolomonVoice's product identity or UI/UX. See `requirements.txt` and the upstream projects for their respective licenses.
+SolomonVoice does use clearly declared open-source runtime libraries, including OpenAI Whisper for local speech recognition and Kokoro-82M through the MIT-licensed `kokoro-onnx` runtime for local speech synthesis. Those dependencies provide underlying technical capabilities; they do not supply SolomonVoice's product identity or UI/UX. See `requirements.txt` and the upstream projects for their respective licenses.
+
+## Read Aloud
+
+- Highlight text in an application or browser and press **Ctrl+Shift+Space**.
+- Press **Ctrl+Shift+Space** again to stop immediately.
+- When nothing is highlighted, SolomonVoice can read the active document or webpage when Windows exposes it through the accessibility API.
+- No clipboard copy is performed. Captured text and generated audio stay in memory.
+- Pausing or exiting SolomonVoice stops playback and unregisters both global shortcuts.
+- Choose among 54 local voices and set reading speed from 0.5× to 2.0× in Settings.
 
 ## What changed in v2
 
@@ -32,23 +41,19 @@ SolomonVoice does use clearly declared open-source runtime libraries, including 
 - Windows 10 or 11
 - Python 3.11 or newer
 - A working microphone
-- Internet access during setup only if the configured Whisper model is not already cached
+- Internet access during first-time setup to download the selected Whisper and Kokoro models
 
 FFmpeg is not needed for live dictation in v2 because microphone audio is passed directly to Whisper as an in-memory NumPy array.
 
 ## Install
 
-Create a project virtual environment, then install CPU-only PyTorch first to avoid downloading CUDA packages on computers that do not use an NVIDIA GPU:
+The first-time setup script creates an isolated environment, installs application dependencies, and downloads the smallest Whisper model plus the recommended Kokoro FP16 model and voice pack:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-python -m pip install -r requirements.txt
-python install_model.py
+.\setup-solomonvoice.ps1
 ```
 
-`install_model.py` is the explicit, one-time network step. Normal SolomonVoice startup loads only that local cache path and fails closed if the model is absent, so background dictation never initiates a download.
+`install_model.py` is the model-only equivalent for an environment whose dependencies are already installed. By default it installs both models. Use `--whisper-only` or `--tts-only` for repairs. Normal SolomonVoice startup uses only local files and never initiates a download.
 
 For the first launch, use the activated environment and a console so device or setup errors remain visible:
 
@@ -74,12 +79,19 @@ Both background launchers use `pyw`, so SolomonVoice lives in the notification a
 4. Release **Space**. The overlay turns amber while transcription runs locally.
 5. Keep the same target window active until the text appears.
 
+To read text aloud:
+
+1. Highlight text in a normal Windows application or webpage.
+2. Press **Ctrl+Shift+Space** once.
+3. Press **Ctrl+Shift+Space** again whenever you want reading to stop.
+4. With no selection, SolomonVoice reads the active document when that application exposes a Windows accessibility text document.
+
 Right-click the tray microphone for:
 
-- **Settings…** — choose or install a local Whisper model, change its storage folder, choose a microphone, test its level, change the dictation shortcut, and adjust behavior without editing JSON.
+- **Settings…** — manage Whisper and Kokoro model folders, select a voice and speed, choose a microphone, and configure both shortcuts without editing JSON.
 - **Session history…** — inspect the latest 20 attempts, rerun the most recent in-memory audio without typing it, or explicitly copy a transcript. History disappears when SolomonVoice exits.
 - **Retry last into active app** — rerun the latest recording with the active model and type it into the currently focused text target.
-- **Pause listening** — immediately unregisters Ctrl+Space and closes the microphone. The shortcut behaves normally in every app.
+- **Pause listening** — immediately stops speech, unregisters Ctrl+Space and Ctrl+Shift+Space, and closes the microphone. Both shortcuts behave normally in every app.
 - **Resume listening** — registers the shortcut again.
 - **Exit SolomonVoice** — invalidates pending work, closes the mic, unregisters the hotkey, removes the tray icon, and terminates the process.
 
@@ -91,6 +103,8 @@ Open **Settings…** from the tray menu. SolomonVoice temporarily pauses listeni
 
 - Choose **Windows default** or a named microphone. Named devices are saved by device name and Windows audio host rather than a fragile numeric index.
 - Choose the active Whisper model and its local storage folder. **Install selected model** is an explicit one-time download; routine dictation remains offline. Compatible local `.pt` checkpoints placed in that folder also appear in the dropdown.
+- Choose a Kokoro precision, voice, reading speed, and model folder. **Install voice model** downloads the selected ONNX graph and the shared 54-voice pack.
+- Configure **Ctrl+Shift+Space** independently from the dictation shortcut and choose whether no-selection requests may fall back to the full active document.
 - Use the Ctrl/Alt/Shift controls and key picker, or click **Record shortcut** and press a combination. Apply checks the shortcut against Windows and keeps the old shortcut if another app already owns it.
 - Choose hold-to-talk or press-once toggle mode. In either mode, **Escape** can discard the current recording without transcribing it.
 - Enable launch at Windows sign-in, move or hide the waveform, reduce animation, and toggle sounds.
@@ -112,6 +126,17 @@ The tray Settings window covers normal choices. `solomonvoice_config.json` remai
     "model_directory": null,
     "language": "en",
     "task": "transcribe"
+  },
+  "read_aloud": {
+    "enabled": true,
+    "shortcut": {"key": "space", "modifiers": ["ctrl", "shift"]},
+    "model": "kokoro-v1.0-fp16",
+    "model_directory": null,
+    "voice": "af_heart",
+    "speed": 1.0,
+    "read_full_document": true,
+    "max_characters": 100000,
+    "output_device": null
   },
   "audio": {
     "sample_rate": 16000,
@@ -161,6 +186,7 @@ English-only `.en` models can improve English recognition without increasing mod
 ## Safety behavior
 
 - Pause and Exit return Ctrl+Space to Windows immediately.
+- Pause and Exit also return Ctrl+Shift+Space and stop Read Aloud audio immediately.
 - Repeated keydown events do not start duplicate recordings.
 - Text insertion waits for every shortcut key, including Ctrl, to be physically released.
 - Changing focus during transcription causes a safe error instead of a paste into the wrong app.
@@ -185,6 +211,9 @@ The test suite covers configuration isolation, hotkey parsing, UTF-16 input, in-
 - `listener_v2.py` — locked recording/transcription state machine and cancellation generations
 - `ui.py` — tray icon and no-activate waveform overlay
 - `transcriber.py` — lazy local Whisper model and in-memory transcription
+- `tts_reader.py` — lazy local Kokoro synthesis, text chunking, and cancelable playback
+- `text_capture.py` — clipboard-free selected/document text retrieval through Windows UI Automation
+- `tts_models.py` — voice catalog, model locations, and explicit model downloads
 - `injector.py` — focus-checked Unicode `SendInput`
 - `feedback.py` — optional sound and minimal console status
 - `config.py` — defaults, deep merge, and validation
@@ -214,3 +243,5 @@ Connect once and run `python install_model.py` from the activated environment, o
 ## License
 
 MIT — see `LICENSE`.
+
+Third-party libraries and model weights retain their upstream licenses; see `THIRD_PARTY_NOTICES.md`.

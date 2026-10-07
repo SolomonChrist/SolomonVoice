@@ -30,6 +30,9 @@ def test_smallest_model_is_the_product_default(tmp_path):
     config = Config(write_config(tmp_path, {}))
 
     assert config.get("whisper.model") == "tiny"
+    assert config.get("read_aloud.model") == "kokoro-v1.0-fp16"
+    assert config.get("read_aloud.shortcut") == {"key": "space", "modifiers": ["ctrl", "shift"]}
+    assert config.get("read_aloud.voice") == "af_heart"
 
 
 def test_safe_local_model_name_and_directory_are_supported(tmp_path):
@@ -52,6 +55,24 @@ def test_model_path_traversal_is_rejected(tmp_path):
 def test_unknown_modifier_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="Unsupported shortcut modifiers"):
         Config(write_config(tmp_path, {"shortcut": {"modifiers": ["hyper"]}}))
+
+
+def test_dictation_and_read_aloud_shortcuts_must_be_distinct(tmp_path):
+    with pytest.raises(ValueError, match="must be different"):
+        Config(
+            write_config(
+                tmp_path,
+                {
+                    "shortcut": {"key": "space", "modifiers": ["ctrl"]},
+                    "read_aloud": {"shortcut": {"key": "space", "modifiers": ["ctrl"]}},
+                },
+            )
+        )
+
+
+def test_read_aloud_speed_is_bounded(tmp_path):
+    with pytest.raises(ValueError, match="speed"):
+        Config(write_config(tmp_path, {"read_aloud": {"speed": 2.5}}))
 
 
 def test_user_settings_override_defaults_and_save_atomically(tmp_path):

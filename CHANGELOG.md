@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.0
+
+- Added completely offline Read Aloud using Apache-2.0 Kokoro-82M weights through the MIT `kokoro-onnx` runtime.
+- Added the independently configurable **Ctrl+Shift+Space** start/stop shortcut, with the same Windows-owned registration and teardown guarantees as dictation.
+- Added clipboard-free highlighted-text and full-document capture through Windows UI Automation.
+- Added 54-voice selection, 0.5×–2.0× reading speed, model precision selection, model-folder display, installation status, and in-app model installation.
+- First-time setup now installs both Whisper Tiny and Kokoro FP16 plus the shared voice pack; normal runtime remains offline and never downloads models.
+- Pausing or exiting now cancels synthesis, stops output, clears the in-memory queue, and unregisters both shortcuts.
+
 ## 2.2.1
 
 - Fixed lost opening words on slow-waking USB and Bluetooth microphones by opening the input first and waiting for the first real audio block.

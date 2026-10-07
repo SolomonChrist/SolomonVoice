@@ -45,7 +45,14 @@ def test_settings_actions_are_visible_inside_window():
         assert settings.model_combo.winfo_ismapped()
         assert settings.model_dir_entry.winfo_ismapped()
         assert settings.install_model_button.winfo_ismapped()
+        assert settings.install_tts_button.winfo_ismapped()
+        assert settings.voice_combo.winfo_ismapped()
+        assert settings.tts_model_dir_entry.winfo_ismapped()
         assert settings.model_var.get() == "tiny"
+        assert settings.tts_model_var.get() == "kokoro-v1.0-fp16"
+        assert settings.read_key_var.get() == "space"
+        assert settings.read_ctrl_var.get()
+        assert settings.read_shift_var.get()
         style = __import__("tkinter.ttk", fromlist=["Style"]).Style(settings.window)
         assert style.lookup("SV.TButton", "background", ("active",)) == "#203855"
         assert style.lookup("SV.TCombobox", "fieldbackground", ("readonly",)) == INPUT

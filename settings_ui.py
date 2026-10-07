@@ -25,6 +25,18 @@ from whisper_models import (
     model_path,
     resolve_model_directory,
 )
+from tts_models import (
+    DEFAULT_TTS_MODEL,
+    TTS_MODELS,
+    VOICE_BY_ID,
+    VOICE_BY_LABEL,
+    VOICE_CHOICES,
+    install_tts_model,
+    model_file as tts_model_file,
+    model_is_installed as tts_model_is_installed,
+    resolve_tts_directory,
+    voices_file,
+)
 
 
 SUPPORTED_KEYS = (
@@ -63,6 +75,7 @@ class SettingsWindow:
         self._test_stream = None
         self._test_level = 0.0
         self._capture_binding = None
+        self._capture_target = "dictation"
         self._model_installing = False
         self._meter_after_id = None
         self.status_var = tk.StringVar(master=parent, value="Changes are saved only on this Windows account.")
@@ -250,6 +263,7 @@ class SettingsWindow:
         self.content_canvas.bind("<Leave>", lambda _event: self.content_canvas.unbind_all("<MouseWheel>"))
 
         self._build_model(content)
+        self._build_read_aloud(content)
         self._build_microphone(content)
         self._build_shortcut(content)
         self._build_behavior(content)
@@ -409,6 +423,202 @@ class SettingsWindow:
             return
         self.status_var.set(f"{name} is installed locally. Click Apply changes to use it.")
 
+    def _build_read_aloud(self, parent):
+        card = self._card(parent)
+        ttk.Label(card, text="Read Aloud", style="Section.TLabel").grid(row=0, column=0, columnspan=6, sticky="w")
+        ttk.Label(
+            card,
+            text="Read highlighted text—or the active document—with a completely local Kokoro voice.",
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, columnspan=6, sticky="w", pady=(2, 9))
+
+        self.read_enabled_var = tk.BooleanVar(value=self.config.get("read_aloud.enabled", True))
+        self._toggle_chip(card, "Enable Read Aloud", self.read_enabled_var).grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(0, 9)
+        )
+
+        current_model = self.config.get("read_aloud.model", DEFAULT_TTS_MODEL)
+        current_directory = resolve_tts_directory(self.config.get("read_aloud.model_directory"))
+        self.tts_model_var = tk.StringVar(value=current_model)
+        self.tts_model_dir_var = tk.StringVar(value=str(current_directory))
+        self.tts_model_status = tk.StringVar()
+        ttk.Label(card, text="Voice model", style="Muted.TLabel").grid(row=3, column=0, columnspan=3, sticky="w")
+        self.tts_model_combo = ttk.Combobox(
+            card,
+            textvariable=self.tts_model_var,
+            values=tuple(TTS_MODELS),
+            state="readonly",
+            width=27,
+            style="SV.TCombobox",
+        )
+        self.tts_model_combo.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        self.tts_model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_tts_model_status())
+        self.install_tts_button = ttk.Button(
+            card, text="Install voice model", command=self.install_selected_tts_model, style="SV.TButton"
+        )
+        self.install_tts_button.grid(row=4, column=3, columnspan=3, sticky="e", padx=(10, 0), pady=(4, 0))
+
+        ttk.Label(card, text="Voice model folder", style="Muted.TLabel").grid(
+            row=5, column=0, columnspan=6, sticky="w", pady=(10, 4)
+        )
+        self.tts_model_dir_entry = ttk.Entry(card, textvariable=self.tts_model_dir_var, style="SV.TEntry")
+        self.tts_model_dir_entry.grid(row=6, column=0, columnspan=5, sticky="ew")
+        self.tts_model_dir_entry.bind("<FocusOut>", lambda _event: self._tts_directory_changed())
+        self.tts_model_dir_entry.bind("<Return>", lambda _event: self._tts_directory_changed())
+        self.browse_tts_button = ttk.Button(
+            card, text="Browse…", command=self.choose_tts_directory, style="SV.TButton"
+        )
+        self.browse_tts_button.grid(row=6, column=5, padx=(10, 0))
+        ttk.Label(card, textvariable=self.tts_model_status, style="Muted.TLabel").grid(
+            row=7, column=0, columnspan=6, sticky="w", pady=(6, 10)
+        )
+
+        ttk.Label(card, text="Voice", style="Muted.TLabel").grid(row=8, column=0, columnspan=3, sticky="w")
+        ttk.Label(card, text="Reading speed", style="Muted.TLabel").grid(row=8, column=3, columnspan=3, sticky="w")
+        current_voice = self.config.get("read_aloud.voice", "af_heart")
+        voice_label = VOICE_BY_ID.get(current_voice, VOICE_BY_ID["af_heart"])[0]
+        self.voice_var = tk.StringVar(value=voice_label)
+        self.voice_combo = ttk.Combobox(
+            card,
+            textvariable=self.voice_var,
+            values=tuple(label for label, _voice, _language in VOICE_CHOICES),
+            state="readonly",
+            width=30,
+            style="SV.TCombobox",
+        )
+        self.voice_combo.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(4, 0), padx=(0, 10))
+        self.speed_var = tk.DoubleVar(value=self.config.get("read_aloud.speed", 1.0))
+        speed_row = tk.Frame(card, bg=SURFACE)
+        speed_row.grid(row=9, column=3, columnspan=3, sticky="ew", pady=(4, 0))
+        self.speed_scale = tk.Scale(
+            speed_row, from_=0.5, to=2.0, resolution=0.05, orient="horizontal",
+            variable=self.speed_var, showvalue=False, bg=SURFACE, fg=TEXT,
+            troughcolor=INPUT, activebackground=TEAL, highlightthickness=0,
+            bd=0, sliderrelief="flat", sliderlength=16,
+        )
+        self.speed_scale.pack(side="left", fill="x", expand=True)
+        self.speed_label = tk.Label(speed_row, bg=SURFACE, fg=TEXT_SOFT, width=5, font=("Segoe UI", 9))
+        self.speed_label.pack(side="right", padx=(8, 0))
+        self.speed_var.trace_add("write", lambda *_args: self.speed_label.configure(text=f"{self.speed_var.get():.2g}×"))
+        self.speed_label.configure(text=f"{self.speed_var.get():.2g}×")
+
+        self.read_full_var = tk.BooleanVar(value=self.config.get("read_aloud.read_full_document", True))
+        self._toggle_chip(card, "Read full document when nothing is highlighted", self.read_full_var).grid(
+            row=10, column=0, columnspan=6, sticky="ew", pady=(10, 8)
+        )
+
+        ttk.Label(card, text="Read Aloud shortcut", style="Muted.TLabel").grid(
+            row=11, column=0, columnspan=6, sticky="w", pady=(2, 5)
+        )
+        shortcut = self.config.get("read_aloud.shortcut", {"key": "space", "modifiers": ["ctrl", "shift"]})
+        configured = {item.lower() for item in shortcut["modifiers"]}
+        self.read_ctrl_var = tk.BooleanVar(value=bool(configured & {"ctrl", "control"}))
+        self.read_alt_var = tk.BooleanVar(value="alt" in configured)
+        self.read_shift_var = tk.BooleanVar(value="shift" in configured)
+        self.read_win_var = tk.BooleanVar(value=bool(configured & {"win", "windows"}))
+        for column, (text, variable) in enumerate((
+            ("Ctrl", self.read_ctrl_var), ("Alt", self.read_alt_var),
+            ("Shift", self.read_shift_var), ("Win", self.read_win_var),
+        )):
+            self._toggle_chip(card, text, variable).grid(row=12, column=column, sticky="w", padx=(0, 7))
+        self.read_key_var = tk.StringVar(value=shortcut["key"].lower())
+        ttk.Combobox(
+            card, textvariable=self.read_key_var, values=SUPPORTED_KEYS,
+            state="readonly", width=12, style="SV.TCombobox",
+        ).grid(row=12, column=4, padx=(6, 10))
+        self.read_capture_button = ttk.Button(
+            card, text="Record shortcut", command=lambda: self.begin_shortcut_capture("read"), style="SV.TButton"
+        )
+        self.read_capture_button.grid(row=12, column=5, sticky="e")
+        card.columnconfigure(0, weight=1)
+        card.columnconfigure(1, weight=1)
+        card.columnconfigure(2, weight=1)
+        card.columnconfigure(3, weight=1)
+        card.columnconfigure(4, weight=1)
+        self._update_tts_model_status()
+
+    def _selected_tts_directory(self):
+        return resolve_tts_directory(self.tts_model_dir_var.get().strip() or None)
+
+    def _tts_directory_changed(self):
+        self.tts_model_dir_var.set(str(self._selected_tts_directory()))
+        self._update_tts_model_status()
+
+    def choose_tts_directory(self):
+        selected = filedialog.askdirectory(
+            parent=self.window,
+            title="Choose SolomonVoice voice model folder",
+            initialdir=str(self._selected_tts_directory()),
+            mustexist=False,
+        )
+        if selected:
+            self.tts_model_dir_var.set(os.path.abspath(selected))
+            self._tts_directory_changed()
+
+    def _update_tts_model_status(self):
+        name = self.tts_model_var.get()
+        directory = self._selected_tts_directory()
+        installed = tts_model_is_installed(name, directory)
+        description = TTS_MODELS[name]["description"]
+        state = "Installed" if installed else "Not installed"
+        self.tts_model_status.set(
+            f"{description}  •  {state}  •  {tts_model_file(name, directory).name} + {voices_file(directory).name}"
+        )
+        if hasattr(self, "install_tts_button"):
+            self.install_tts_button.configure(
+                state="disabled" if installed or self._model_installing else "normal",
+                text="Installed" if installed else ("Installing…" if self._model_installing else "Install voice model"),
+            )
+
+    def install_selected_tts_model(self):
+        if self._model_installing:
+            return
+        name = self.tts_model_var.get()
+        directory = self._selected_tts_directory()
+        self._model_installing = True
+        self.status_var.set(f"Installing {name} and its local voice pack…")
+        self.apply_button.configure(state="disabled")
+        self.tts_model_combo.configure(state="disabled")
+        self.browse_tts_button.configure(state="disabled")
+        self._update_tts_model_status()
+
+        def progress(filename, copied, total):
+            if total:
+                status = f"Installing {filename}… {copied * 100 // total}%"
+            else:
+                status = f"Installing {filename}… {copied // (1024 * 1024)} MB"
+            try:
+                self.window.after(0, lambda value=status: self.status_var.set(value))
+            except tk.TclError:
+                pass
+
+        def worker():
+            try:
+                install_tts_model(name, directory, progress)
+                error = None
+            except Exception as exc:
+                error = exc
+            try:
+                self.window.after(0, lambda: self._finish_tts_install(error))
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, name="SolomonVoiceVoiceModelInstaller", daemon=True).start()
+
+    def _finish_tts_install(self, error):
+        if self._closed:
+            return
+        self._model_installing = False
+        self.apply_button.configure(state="normal")
+        self.tts_model_combo.configure(state="readonly")
+        self.browse_tts_button.configure(state="normal")
+        self._update_tts_model_status()
+        if error:
+            self.status_var.set("Could not install the Read Aloud model.")
+            messagebox.showerror("Voice model installation failed", str(error), parent=self.window)
+        else:
+            self.status_var.set("The Read Aloud model and voices are installed locally.")
+
     def _toggle_chip(self, parent, text, variable, width=None):
         widget = tk.Checkbutton(
             parent,
@@ -531,7 +741,9 @@ class SettingsWindow:
         ).grid(
             row=2, column=4, padx=(6, 10)
         )
-        self.capture_button = ttk.Button(card, text="Record shortcut", command=self.begin_shortcut_capture, style="SV.TButton")
+        self.capture_button = ttk.Button(
+            card, text="Record shortcut", command=lambda: self.begin_shortcut_capture("dictation"), style="SV.TButton"
+        )
         self.capture_button.grid(row=2, column=5, sticky="e")
         card.columnconfigure(5, weight=1)
 
@@ -664,8 +876,10 @@ class SettingsWindow:
         self.mic_status.set("Microphone test stopped.")
         return True
 
-    def begin_shortcut_capture(self):
-        self.capture_button.configure(text="Press shortcut now…", state="disabled")
+    def begin_shortcut_capture(self, target="dictation"):
+        self._capture_target = target
+        button = self.read_capture_button if target == "read" else self.capture_button
+        button.configure(text="Press shortcut now…", state="disabled")
         self.window.focus_force()
         self._capture_binding = self.window.bind("<KeyPress>", self._capture_shortcut, add="+")
 
@@ -679,16 +893,25 @@ class SettingsWindow:
         }
         key = key_map.get(keysym, keysym)
         if key not in SUPPORTED_KEYS:
-            self.status_var.set(f"{event.keysym} is not supported as a dictation shortcut.")
+            self.status_var.set(f"{event.keysym} is not supported as a SolomonVoice shortcut.")
             self._end_shortcut_capture()
             return "break"
         state = int(event.state)
-        self.ctrl_var.set(bool(state & 0x0004))
-        self.shift_var.set(bool(state & 0x0001))
-        self.alt_var.set(bool(state & 0x0008 or state & 0x20000))
-        self.win_var.set(bool(state & 0x0040))
-        self.key_var.set(key)
-        self.status_var.set(f"Captured {self._shortcut_display()} — Apply to test it for conflicts.")
+        if self._capture_target == "read":
+            self.read_ctrl_var.set(bool(state & 0x0004))
+            self.read_shift_var.set(bool(state & 0x0001))
+            self.read_alt_var.set(bool(state & 0x0008 or state & 0x20000))
+            self.read_win_var.set(bool(state & 0x0040))
+            self.read_key_var.set(key)
+            display = self._read_shortcut_display()
+        else:
+            self.ctrl_var.set(bool(state & 0x0004))
+            self.shift_var.set(bool(state & 0x0001))
+            self.alt_var.set(bool(state & 0x0008 or state & 0x20000))
+            self.win_var.set(bool(state & 0x0040))
+            self.key_var.set(key)
+            display = self._shortcut_display()
+        self.status_var.set(f"Captured {display} — Apply to test it for conflicts.")
         self._end_shortcut_capture()
         return "break"
 
@@ -696,7 +919,10 @@ class SettingsWindow:
         if self._capture_binding is not None:
             self.window.unbind("<KeyPress>", self._capture_binding)
             self._capture_binding = None
-        self.capture_button.configure(text="Record shortcut", state="normal")
+        if hasattr(self, "capture_button"):
+            self.capture_button.configure(text="Record shortcut", state="normal")
+        if hasattr(self, "read_capture_button"):
+            self.read_capture_button.configure(text="Record shortcut", state="normal")
 
     def _shortcut(self):
         modifiers = []
@@ -712,6 +938,22 @@ class SettingsWindow:
 
     def _shortcut_display(self):
         key, modifiers = self._shortcut()
+        return "+".join([item.title() for item in modifiers] + [key.title()])
+
+    def _read_shortcut(self):
+        modifiers = []
+        if self.read_ctrl_var.get():
+            modifiers.append("ctrl")
+        if self.read_alt_var.get():
+            modifiers.append("alt")
+        if self.read_shift_var.get():
+            modifiers.append("shift")
+        if self.read_win_var.get():
+            modifiers.append("win")
+        return self.read_key_var.get().lower(), modifiers
+
+    def _read_shortcut_display(self):
+        key, modifiers = self._read_shortcut()
         return "+".join([item.title() for item in modifiers] + [key.title()])
 
     def apply(self):
@@ -730,19 +972,33 @@ class SettingsWindow:
             )
             return
         key, modifiers = self._shortcut()
+        read_key, read_modifiers = self._read_shortcut()
         old_hotkey = self.listener.hotkey
+        old_read_hotkey = self.listener.read_hotkey
+        old_reader = self.listener.reader
         old_transcriber = self.listener.transcriber
         old_startup = self.original_startup
         try:
             virtual_key(key)
             modifier_mask(modifiers)
+            virtual_key(read_key)
+            modifier_mask(read_modifiers)
             if not modifiers and key not in {f"f{number}" for number in range(13, 25)}:
                 raise ValueError("Use Ctrl, Alt, or Shift with this key so normal typing is not blocked.")
+            if self.read_enabled_var.get() and not read_modifiers and read_key not in {f"f{number}" for number in range(13, 25)}:
+                raise ValueError("Use Ctrl, Alt, or Shift with the Read Aloud key so normal typing is not blocked.")
 
             candidate = copy.deepcopy(self.original)
             candidate["shortcut"] = {"key": key, "modifiers": modifiers}
             candidate["whisper"]["model"] = self.model_var.get().strip()
             candidate["whisper"]["model_directory"] = str(self._selected_model_directory())
+            candidate["read_aloud"]["enabled"] = bool(self.read_enabled_var.get())
+            candidate["read_aloud"]["shortcut"] = {"key": read_key, "modifiers": read_modifiers}
+            candidate["read_aloud"]["model"] = self.tts_model_var.get()
+            candidate["read_aloud"]["model_directory"] = str(self._selected_tts_directory())
+            candidate["read_aloud"]["voice"] = VOICE_BY_LABEL[self.voice_var.get()][0]
+            candidate["read_aloud"]["speed"] = float(self.speed_var.get())
+            candidate["read_aloud"]["read_full_document"] = bool(self.read_full_var.get())
             candidate["audio"]["device"] = self._selected_identity()
             candidate["behavior"]["recording_mode"] = self.mode_var.get()
             candidate["behavior"]["escape_to_cancel"] = bool(self.escape_var.get())
@@ -760,6 +1016,7 @@ class SettingsWindow:
                 candidate["whisper"]["model"],
                 candidate["whisper"]["model_directory"],
             )
+            self.listener.configure_read_aloud(candidate["read_aloud"])
             set_start_with_windows(candidate["behavior"]["start_with_windows"])
             self.config.replace(candidate)
             self.config.save_user()
@@ -767,6 +1024,8 @@ class SettingsWindow:
         except Exception as exc:
             self.config.replace(self.original)
             self.listener.hotkey = old_hotkey
+            self.listener.read_hotkey = old_read_hotkey
+            self.listener.reader = old_reader
             self.listener.transcriber = old_transcriber
             rollback_errors = []
             try:
@@ -807,6 +1066,21 @@ class SettingsWindow:
         self.model_var.set(defaults["whisper"].get("model", DEFAULT_MODEL))
         self.model_dir_var.set(str(resolve_model_directory(defaults["whisper"].get("model_directory"))))
         self._model_directory_changed()
+        read_defaults = defaults.get("read_aloud", {})
+        self.read_enabled_var.set(read_defaults.get("enabled", True))
+        self.tts_model_var.set(read_defaults.get("model", DEFAULT_TTS_MODEL))
+        self.tts_model_dir_var.set(str(resolve_tts_directory(read_defaults.get("model_directory"))))
+        self.voice_var.set(VOICE_BY_ID[read_defaults.get("voice", "af_heart")][0])
+        self.speed_var.set(read_defaults.get("speed", 1.0))
+        self.read_full_var.set(read_defaults.get("read_full_document", True))
+        read_shortcut = read_defaults.get("shortcut", {"key": "space", "modifiers": ["ctrl", "shift"]})
+        read_configured = {item.lower() for item in read_shortcut["modifiers"]}
+        self.read_ctrl_var.set(bool(read_configured & {"ctrl", "control"}))
+        self.read_alt_var.set("alt" in read_configured)
+        self.read_shift_var.set("shift" in read_configured)
+        self.read_win_var.set(bool(read_configured & {"win", "windows"}))
+        self.read_key_var.set(read_shortcut["key"])
+        self._tts_directory_changed()
         self.mic_var.set(self.default_label)
         self.mode_var.set(defaults["behavior"].get("recording_mode", "hold"))
         self.escape_var.set(defaults["behavior"].get("escape_to_cancel", True))

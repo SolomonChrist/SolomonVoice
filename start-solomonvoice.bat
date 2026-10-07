@@ -3,17 +3,18 @@ cd /d "%~dp0"
 
 echo.
 echo ========================================
-echo Starting SolomonVoice v2.2.1
+echo Starting SolomonVoice v2.3.0
 echo ========================================
 echo.
-echo This is an offline voice-to-text tool.
+echo This is an offline voice-to-text and text-to-voice tool.
 echo - Hold Ctrl+Space to record
 echo - Release to transcribe
 echo - Text will be typed into the focused app
+echo - Ctrl+Shift+Space reads highlighted text aloud and stops it
 echo.
 echo Hotkey: Ctrl+Space
-echo Model: Tiny by default (change it from tray Settings)
-echo Transcription: Local and offline after one-time model setup
+echo Models: Whisper Tiny + Kokoro FP16 by default (change them in Settings)
+echo Dictation and Read Aloud: Local and offline after first-time setup
 echo A tray icon will appear. Right-click it for Settings, Pause, or Exit.
 echo.
 echo Exit from the tray menu to release the hotkey.

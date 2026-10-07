@@ -9,6 +9,20 @@
     "language": "en",
     "task": "transcribe"
   },
+  "read_aloud": {
+    "enabled": true,
+    "shortcut": {
+      "key": "space",
+      "modifiers": ["ctrl", "shift"]
+    },
+    "model": "kokoro-v1.0-fp16",
+    "model_directory": null,
+    "voice": "af_heart",
+    "speed": 1.0,
+    "read_full_document": true,
+    "max_characters": 100000,
+    "output_device": null
+  },
   "audio": {
     "sample_rate": 16000,
     "channels": 1,

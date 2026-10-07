@@ -11,6 +11,17 @@ class FakeConfig:
     data = {
         "shortcut": {"key": "space", "modifiers": ["ctrl"]},
         "whisper": {"model": "tiny", "task": "transcribe", "language": "en"},
+        "read_aloud": {
+            "enabled": True,
+            "shortcut": {"key": "space", "modifiers": ["ctrl", "shift"]},
+            "model": "kokoro-v1.0-fp16",
+            "model_directory": None,
+            "voice": "af_heart",
+            "speed": 1.0,
+            "read_full_document": True,
+            "max_characters": 100000,
+            "output_device": None,
+        },
         "audio": {"channels": 1, "sample_rate": 16000, "device": None, "silence_rms": 0.003},
         "behavior": {
             "append_space": True,
@@ -93,10 +104,23 @@ class FakeTranscriber:
         return "private text"
 
 
+class FakeReader:
+    def __init__(self, *_args):
+        self.args = _args
+        self.stop_calls = 0
+
+    def stop(self):
+        self.stop_calls += 1
+
+    def speak(self, *_args, **_kwargs):
+        return True
+
+
 def make_listener(monkeypatch):
     monkeypatch.setattr(listener_v2, "NativeHotkey", FakeHotkey)
     monkeypatch.setattr(listener_v2, "Injector", FakeInjector)
     monkeypatch.setattr(listener_v2, "Transcriber", FakeTranscriber)
+    monkeypatch.setattr(listener_v2, "TTSReader", FakeReader)
     return ListenerV2(FakeConfig(), FakeFeedback())
 
 
@@ -105,11 +129,28 @@ def test_pause_unregisters_hotkey(monkeypatch):
     listener._running = True
     listener.state = State.IDLE
     listener.hotkey.start()
+    listener.read_hotkey.start()
 
     listener.pause()
 
     assert listener.state == State.PAUSED
     assert listener.hotkey.active is False
+    assert listener.read_hotkey.active is False
+    assert listener.reader.stop_calls == 1
+
+
+def test_read_hotkey_toggles_and_second_press_stops(monkeypatch):
+    listener = make_listener(monkeypatch)
+    listener._running = True
+    listener.state = State.IDLE
+    listener._spawn_worker = lambda *_args: None
+
+    listener._start_reading()
+    assert listener.state == State.READING
+
+    listener._stop_reading()
+    assert listener.state == State.IDLE
+    assert listener.reader.stop_calls == 1
 
 
 def test_stop_invalidates_in_flight_transcription_and_prevents_late_insert(monkeypatch):

@@ -24,6 +24,7 @@ COLORS = {
     "ready": "#19C6B3",
     "recording": "#FB4B6B",
     "transcribing": "#F6B84A",
+    "reading": "#61A8FF",
     "paused": "#7C8799",
     "error": "#FF5364",
     "stopped": "#596273",
@@ -363,7 +364,7 @@ class DesktopUI:
         if state == "recording":
             self.started_at = time.monotonic()
             self._show_overlay()
-        elif state == "transcribing":
+        elif state in {"transcribing", "reading"}:
             self._show_overlay()
         elif state == "error":
             self._show_overlay()
@@ -378,6 +379,7 @@ class DesktopUI:
         title = {
             "recording": "Listening",
             "transcribing": "Transcribing locally",
+            "reading": "Reading locally",
             "error": "Dictation needs attention",
         }.get(self.state, self.state.title())
         subtitle = self.detail or (
@@ -398,13 +400,13 @@ class DesktopUI:
         if self.state != "recording":
             self.level *= 0.8
         reduced_motion = self.config.get("visual.reduced_motion", False)
-        phase = 0 if reduced_motion else time.monotonic() * (8 if self.state == "transcribing" else 4)
+        phase = 0 if reduced_motion else time.monotonic() * (8 if self.state in {"transcribing", "reading"} else 4)
         color = COLORS.get(self.state, COLORS["ready"])
         for index, bar in enumerate(self._bars):
             profile = 0.35 + 0.65 * abs(math.sin(index * 0.58 + phase))
             if self.state == "recording":
                 amplitude = 4 + 21 * self.display_level * profile
-            elif self.state == "transcribing":
+            elif self.state in {"transcribing", "reading"}:
                 amplitude = 4 + 9 * profile
             else:
                 amplitude = 3
@@ -424,6 +426,7 @@ class DesktopUI:
             "ready": f"Ready · {hotkey}",
             "recording": "Recording · release to stop",
             "transcribing": "Transcribing locally",
+            "reading": "Reading aloud · press shortcut again to stop",
             "paused": "Paused · hotkey released",
             "error": "Attention needed",
             "starting": "Starting SolomonVoice",
